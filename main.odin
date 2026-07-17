@@ -23,7 +23,7 @@ render :: proc() {
     g.next_signal_value += 1
     waitValue := signalValue - MAX_FRAMES_IN_FLIGHT
 
-    waitInfo := vk.SemaphoreWaitInfo{
+    waitInfo : vk.SemaphoreWaitInfo = {
         sType          = .SEMAPHORE_WAIT_INFO,
         semaphoreCount = 1,
         pSemaphores    = &g.timeline_semaphore,
@@ -103,7 +103,7 @@ render :: proc() {
     vk.CmdPipelineBarrier2(res.command_buffer, &depInfo)
 
     // setup the attachments (color and depth) and begin rendering (dynamic)
-    colorAttachInfo : vk.RenderingAttachmentInfo={
+    colorAttachInfo : vk.RenderingAttachmentInfo = {
         sType       = .RENDERING_ATTACHMENT_INFO,
         imageView   = g.swapchain_views[imageIndex],
         imageLayout = .COLOR_ATTACHMENT_OPTIMAL,
@@ -111,7 +111,7 @@ render :: proc() {
         storeOp     = .STORE, // keep data for presentation
         clearValue  = {color = {float32 = {0.01, 0.01, 0.01, 1}}},
     }
-    depthAttachInfo : vk.RenderingAttachmentInfo={
+    depthAttachInfo : vk.RenderingAttachmentInfo = {
         sType       = .RENDERING_ATTACHMENT_INFO,
         imageView   = g.depth_image_view,
         imageLayout = .DEPTH_ATTACHMENT_OPTIMAL,
@@ -119,7 +119,7 @@ render :: proc() {
         storeOp     = .DONT_CARE,  // don't care after rendering
         clearValue  = {depthStencil = {depth = 1.0, stencil = 0}},
     }
-    renderingInfo : vk.RenderingInfo={
+    renderingInfo : vk.RenderingInfo = {
         sType = .RENDERING_INFO,
         renderArea = {
             offset = {x = 0, y = 0},
@@ -136,7 +136,7 @@ render :: proc() {
 
     {
         // set the viewport and scissor state
-        viewport : vk.Viewport={
+        viewport : vk.Viewport = {
             x      = 0,
             y      = 0,
             width  = f32(g.swapchain_width),
@@ -144,7 +144,7 @@ render :: proc() {
         }
         vk.CmdSetViewport(res.command_buffer, 0, 1, &viewport)
 
-        scissor : vk.Rect2D={
+        scissor : vk.Rect2D = {
             offset = {x = 0, y = 0},
             extent = {width = g.swapchain_width, height = g.swapchain_height},
         }
@@ -158,7 +158,7 @@ render :: proc() {
     vk.CmdEndRendering(res.command_buffer)
 
     // transition the image from color attachment to presentation so we can show it
-    presentLayoutBarrier : vk.ImageMemoryBarrier2 ={
+    presentLayoutBarrier : vk.ImageMemoryBarrier2 = {
         sType         = .IMAGE_MEMORY_BARRIER_2,
         srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
         srcAccessMask = {.COLOR_ATTACHMENT_WRITE},
@@ -175,7 +175,7 @@ render :: proc() {
             layerCount     = 1,
         },
     }
-    presentDepInfo := vk.DependencyInfo{
+    presentDepInfo : vk.DependencyInfo = {
         sType                   = .DEPENDENCY_INFO,
         imageMemoryBarrierCount = 1,
         pImageMemoryBarriers    = &presentLayoutBarrier,
@@ -185,14 +185,13 @@ render :: proc() {
     vk.EndCommandBuffer(res.command_buffer)
 
     // ensure swapchain image is actually available to start color output
-    imageAcquireWaitInfo := vk.SemaphoreSubmitInfo{
+    imageAcquireWaitInfo : vk.SemaphoreSubmitInfo = {
         sType     = .SEMAPHORE_SUBMIT_INFO,
         semaphore = imageAcquireSemaphore,
         stageMask = {.COLOR_ATTACHMENT_OUTPUT}, // wait before drawing to image
     }
     // signal that the image can be presented
-    semaphoreSignals : [2]vk.SemaphoreSubmitInfo=
-    {
+    semaphoreSignals : [2]vk.SemaphoreSubmitInfo = {
         { // render work completion signal
             sType     = .SEMAPHORE_SUBMIT_INFO,
             semaphore = g.render_complete_semaphores[imageIndex],
@@ -205,11 +204,11 @@ render :: proc() {
             stageMask = {.ALL_COMMANDS},
         },
     }
-    cmdSubmitInfo := vk.CommandBufferSubmitInfo{
+    cmdSubmitInfo : vk.CommandBufferSubmitInfo = {
         sType         = .COMMAND_BUFFER_SUBMIT_INFO,
         commandBuffer = res.command_buffer,
     }
-    submitInfo := vk.SubmitInfo2{
+    submitInfo : vk.SubmitInfo2 = {
         sType                     = .SUBMIT_INFO_2,
         waitSemaphoreInfoCount    = 1,
         pWaitSemaphoreInfos       = &imageAcquireWaitInfo, // ensure the image is ready
@@ -221,7 +220,7 @@ render :: proc() {
     vk.QueueSubmit2(g.graphics_queue, 1, &submitInfo, 0)
 
     // present the image
-    presentInfo := vk.PresentInfoKHR{
+    presentInfo : vk.PresentInfoKHR = {
         sType              = .PRESENT_INFO_KHR,
         waitSemaphoreCount = 1,
         pWaitSemaphores    = &g.render_complete_semaphores[imageIndex], // render work completed semaphore
@@ -236,22 +235,24 @@ render :: proc() {
 
 main :: proc() {
     context.logger = log.create_console_logger()
-    g.ctx = context
-    res := sdl.Init({.VIDEO}); assert(res, "init failed")
-    g.window = sdl.CreateWindow("vk", WIDTH, HEIGHT, {.VULKAN, .RESIZABLE}); assert(g.window != nil)
 
     g.swapchain_format.format = .B8G8R8A8_SRGB
     g.swapchain_format.colorSpace = .SRGB_NONLINEAR
     
-    //uncomment for HDR triangle
+    //uncomment for HDR triangle if supported by monitor
     //g.swapchain_format.format = .A2B10G10R10_UNORM_PACK32
     //g.swapchain_format.colorSpace = .HDR10_ST2084_EXT
 
     g.depth_format = .D32_SFLOAT
     g.running = true
-    g.width = WIDTH
-    g.height = HEIGHT
+    g.width = 1080
+    g.height = 1080
     g.next_signal_value = MAX_FRAMES_IN_FLIGHT + 1
+
+    g.ctx = context
+    res := sdl.Init({.VIDEO}); assert(res, "init failed")
+    g.window = sdl.CreateWindow("vk", i32(g.width), i32(g.height), {.VULKAN, .RESIZABLE}); assert(g.window != nil)
+
     initializeVulkan()
 
     t_last: u64 = sdl.GetTicksNS()
@@ -273,7 +274,9 @@ main :: proc() {
         t_last = t_now
 
         fps := 1e9 / f64(dt)
-        fmt.printf("dt: %d ns | fps: %.1f\n", dt, fps)
+
+        //uncomment to print framerate for higher fps remove VK_LAYER_KHRONOS_validation
+        //fmt.printf("dt: %d ns | fps: %.1f\n", dt, fps)
 
         render()
     }

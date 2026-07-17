@@ -120,7 +120,7 @@ createVulkanInstance::proc()-> bool {
 
     vk.load_proc_addresses(rawptr(sdl.Vulkan_GetVkGetInstanceProcAddr()))
 
-    appInfo := vk.ApplicationInfo{
+    appInfo : vk.ApplicationInfo = {
         sType=.APPLICATION_INFO,
         pApplicationName="triangle",
         apiVersion=vk.API_VERSION_1_4
@@ -141,14 +141,14 @@ createVulkanInstance::proc()-> bool {
     requestedLayers := []cstring{"VK_LAYER_KHRONOS_validation"}
     defer delete(requestedLayers)
     
-    debugInfo := vk.DebugUtilsMessengerCreateInfoEXT{
+    debugInfo : vk.DebugUtilsMessengerCreateInfoEXT = {
         sType=.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
         messageSeverity = {.VERBOSE,.WARNING,.ERROR},
         messageType = {.VALIDATION,.PERFORMANCE},
         pfnUserCallback = debugCallback
     }
 
-    instCreateInfo := vk.InstanceCreateInfo{
+    instCreateInfo : vk.InstanceCreateInfo = {
         sType                   = .INSTANCE_CREATE_INFO,
         pNext                   = &debugInfo,
         pApplicationInfo        = &appInfo,
@@ -242,7 +242,7 @@ findGraphicsQueue::proc()->bool{
 
 create_device :: proc() -> bool {
     queue_priority: f32 = 1.0
-    gfx_queue_info := vk.DeviceQueueCreateInfo{
+    gfx_queue_info : vk.DeviceQueueCreateInfo = {
         sType            = .DEVICE_QUEUE_CREATE_INFO,
         queueFamilyIndex = g.graphics_queue_family_idx,
         queueCount       = 1,
@@ -264,17 +264,17 @@ create_device :: proc() -> bool {
     }
 
     // produce a separate features struct chain for device creation
-    features_14 := vk.PhysicalDeviceVulkan14Features{
+    features_14 : vk.PhysicalDeviceVulkan14Features = {
         sType = .PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
         pNext = nil,
     }
-    features_13 := vk.PhysicalDeviceVulkan13Features{
+    features_13 : vk.PhysicalDeviceVulkan13Features = {
         sType            = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
         pNext            = &features_14,
         synchronization2 = true,
         dynamicRendering = true,
     }
-    features_12 := vk.PhysicalDeviceVulkan12Features{
+    features_12 : vk.PhysicalDeviceVulkan12Features = {
         sType            = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         pNext            = &features_13,
         timelineSemaphore = true,
@@ -283,8 +283,7 @@ create_device :: proc() -> bool {
 
     device_extensions := [?]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
 
-    dev_create_info : vk.DeviceCreateInfo=
-    {
+    dev_create_info : vk.DeviceCreateInfo = {
         sType                   = .DEVICE_CREATE_INFO,
         pNext                   = &features,
         queueCreateInfoCount    = 1,
@@ -333,7 +332,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
     requestedImgCount := max(2, surfaceCaps.minImageCount)
     if surfaceCaps.maxImageCount > 0 do requestedImgCount = min(requestedImgCount, surfaceCaps.maxImageCount)
 
-    swapchainCreateInfo : vk.SwapchainCreateInfoKHR=
+    swapchainCreateInfo : vk.SwapchainCreateInfoKHR =
     {
         sType            = .SWAPCHAIN_CREATE_INFO_KHR,
         surface          = g.surface,
@@ -350,7 +349,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
 
     if vk.CreateSwapchainKHR(g.device, &swapchainCreateInfo, nil, &g.swapchain) != .SUCCESS do return false
 
-    fmt.printfln("created swapchain with %v images", requestedImgCount)
+    fmt.printfln("created swapchain with %v images, width:%v height:%v", requestedImgCount,g.swapchain_width,g.swapchain_height)
 
     // grab the swapchain images
     imageCount: u32 = 0
@@ -362,8 +361,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
 
     // create the swapchain image views
     for i in 0 ..< len(g.swapchain_images) {
-        imgViewInfo : vk.ImageViewCreateInfo = 
-        {
+        imgViewInfo : vk.ImageViewCreateInfo = {
             sType    = .IMAGE_VIEW_CREATE_INFO,
             image    = g.swapchain_images[i],
             viewType = .D2,
@@ -391,7 +389,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
     }
 
     // create depth image
-    depthCreateInfo : vk.ImageCreateInfo=
+    depthCreateInfo : vk.ImageCreateInfo =
     {
         sType       = .IMAGE_CREATE_INFO,
         imageType   = .D2,
@@ -404,8 +402,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
         usage       = {.DEPTH_STENCIL_ATTACHMENT},
         initialLayout = .UNDEFINED,
     }
-    allocInfo : vma.AllocationCreateInfo=
-    {
+    allocInfo : vma.AllocationCreateInfo = {
         flags = {.DEDICATED_MEMORY},
         usage = .AUTO,
     }
@@ -414,8 +411,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
         return false
     }
 
-    depthImgViewInfo : vk.ImageViewCreateInfo =
-    {
+    depthImgViewInfo : vk.ImageViewCreateInfo = {
         sType    = .IMAGE_VIEW_CREATE_INFO,
         image    = g.depth_image,
         viewType = .D2,
@@ -478,7 +474,7 @@ create_shader_module :: proc(filename: string, kind: shaderc.shaderKind) -> vk.S
     spv_size := shaderc.result_get_length(result)
     spv_bytes := shaderc.result_get_bytes(result)
 
-    module_create_info := vk.ShaderModuleCreateInfo{
+    module_create_info : vk.ShaderModuleCreateInfo = {
         sType    = .SHADER_MODULE_CREATE_INFO,
         codeSize = int(spv_size),
         pCode    = cast(^u32)spv_bytes,
@@ -592,7 +588,8 @@ createGraphicsPipeline :: proc() -> bool {
     }
 
     // create the graphics pipeline
-    pipelineInfo: vk.GraphicsPipelineCreateInfo = {
+    pipelineInfo: vk.GraphicsPipelineCreateInfo = 
+    {
         sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
         pNext               = &renderInfo,
         stageCount          = u32(len(shaderStages)),
@@ -616,12 +613,12 @@ createGraphicsPipeline :: proc() -> bool {
 }
 
 createSyncResources :: proc() -> bool {
-    semaphoreTypeInfo := vk.SemaphoreTypeCreateInfo{
+    semaphoreTypeInfo : vk.SemaphoreTypeCreateInfo = {
         sType         = .SEMAPHORE_TYPE_CREATE_INFO,
         semaphoreType = .TIMELINE,
         initialValue  = MAX_FRAMES_IN_FLIGHT,
     }
-    semaphoreInfo := vk.SemaphoreCreateInfo{
+    semaphoreInfo : vk.SemaphoreCreateInfo = {
         sType = .SEMAPHORE_CREATE_INFO,
         pNext = &semaphoreTypeInfo,
     }
@@ -646,7 +643,7 @@ createSyncResources :: proc() -> bool {
 createCommandBuffers :: proc() -> bool {
     for &res in g.frame_resources {
         // we'll give each frame its own pool, faster cmd buffer resets this way
-        poolInfo := vk.CommandPoolCreateInfo{
+        poolInfo : vk.CommandPoolCreateInfo = {
             sType            = .COMMAND_POOL_CREATE_INFO,
             queueFamilyIndex = g.graphics_queue_family_idx,
         }
@@ -656,7 +653,7 @@ createCommandBuffers :: proc() -> bool {
         }
 
         // create the command buffer for this frame
-        cmdAllocInfo := vk.CommandBufferAllocateInfo{
+        cmdAllocInfo : vk.CommandBufferAllocateInfo = {
             sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
             commandPool        = res.command_pool,
             level              = .PRIMARY,
@@ -677,7 +674,7 @@ initializeVulkan :: proc(){
     res = findPhysicalDevice()          ; assert(res!=false)
     res = create_device()               ; assert(res!=false)
     res = initializeVMA()               ; assert(res!=false)
-    res = createSwapchain(WIDTH,HEIGHT) ; assert(res!=false)
+    res = createSwapchain(g.width,g.height) ; assert(res!=false)
     res = createShaders()               ; assert(res!=false)
     res = createGraphicsPipeline()      ; assert(res!=false)
     res = createSyncResources()         ; assert(res!=false)

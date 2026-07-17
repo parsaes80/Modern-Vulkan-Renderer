@@ -4,9 +4,6 @@ import "base:runtime"
 import sdl "vendor:sdl3"
 import vma "odin-vma" 
 
-WIDTH:: 1400
-HEIGHT :: 1080
-
 MAX_FRAMES_IN_FLIGHT :: 2
 
 FrameResources :: struct {
@@ -19,7 +16,6 @@ VKGlobals :: struct {
     ctx: runtime.Context,
 
     window:              ^sdl.Window,
-    framebuffer_resized: bool,
 
     running:            bool,
     width:              u32,
@@ -33,14 +29,12 @@ VKGlobals :: struct {
     surface:         vk.SurfaceKHR,
     graphics_queue_family_idx: u32,
     graphics_queue:  vk.Queue,
-    present_queue:   vk.Queue,
     allocator:       vma.Allocator,
 
     swapchain:                  vk.SwapchainKHR,
     swapchain_images:           []vk.Image,
     swapchain_views:            []vk.ImageView,
     swapchain_format:           vk.SurfaceFormatKHR,
-    swapchain_extent:           vk.Extent2D,
     swapchain_width:            u32,
     swapchain_height:           u32,
     require_swapchain_recreate: bool,
@@ -53,7 +47,6 @@ VKGlobals :: struct {
 
     vert_shader_module: vk.ShaderModule,
     frag_shader_module: vk.ShaderModule,
-    shader_stages:      [2]vk.PipelineShaderStageCreateInfo,
 
     pipeline_layout: vk.PipelineLayout,
     pipeline:        vk.Pipeline,
