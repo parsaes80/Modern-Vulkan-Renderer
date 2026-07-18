@@ -20,12 +20,12 @@ when ODIN_OS == .Windows
 {
   @(extra_linker_flags = "/NODEFAULTLIB:libcmt")
   foreign import libshaderc {
-      "./libs/shaderc_combined.lib",
+      "C:/Program Files/VulkanSDK/Lib/shaderc_combined.lib",
   }
 }
 else when ODIN_OS == .Linux 
 {
-  foreign import libshaderc {"./libshaderc_shared.so.1"} //must have package installed in system libs via a package manager or etc.
+  foreign import libshaderc {"system:libshaderc_shared.so.1"} //must have package installed in system libs via a package manager or etc.
 }
 
 @(default_calling_convention = "c")

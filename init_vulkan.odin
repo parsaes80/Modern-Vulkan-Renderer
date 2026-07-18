@@ -139,7 +139,6 @@ createVulkanInstance::proc()-> bool {
     //fmt.print(requestedExtentions)
 
     requestedLayers := []cstring{"VK_LAYER_KHRONOS_validation"}
-    defer delete(requestedLayers)
     
     debugInfo : vk.DebugUtilsMessengerCreateInfoEXT = {
         sType=.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
