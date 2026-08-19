@@ -4,12 +4,84 @@ import "base:runtime"
 import sdl "vendor:sdl3"
 import vma "odin-vma" 
 
+Vec2 :: [2]f32
+Vec3 :: [3]f32
+Vec4 :: [4]f32
+
 MAX_FRAMES_IN_FLIGHT :: 2
+
+Vertex::struct{
+    pos:Vec3,
+    color:Vec3,
+    normal:Vec3,
+    uv:Vec2
+}
+
+Mesh:: struct{
+	name:string, 
+	subMeshes:[dynamic]SubMesh
+}
+
+SubMesh::struct {
+	vertexStart:u64,
+	vertexCount:u64,
+	indexStart:u64,
+	indexCount:u64,
+	materialId:u32
+}
+
+Image::struct 
+{
+	width:int,
+	height:int,
+	channels:int,
+	data:^u32
+}
+
+FrameConstants :: struct
+{
+	vertexBufferAddress:u64,
+	materialBufferAddress:u64,
+	renderItemsAddress:u64
+}
+
+GPUImage :: struct {
+	image:      vk.Image,
+	image_view: vk.ImageView,
+	allocation: vma.Allocation,
+}
+
+GPUBuffer :: struct {
+	vk_buffer:      vk.Buffer,
+	device_address: vk.DeviceAddress,
+	allocation:     vma.Allocation,
+}
+
+RenderItem :: struct {
+	wvp:            matrix[4,4]f32,
+	world_matrix:   matrix[4,4]f32,
+	material_index: u32,
+}
 
 FrameResources :: struct {
     command_pool:             vk.CommandPool,
     command_buffer:           vk.CommandBuffer,
     image_acquired_semaphore: vk.Semaphore,
+    desc_set:                 vk.DescriptorSet,
+    indirect_draw_buffer:     GPUBuffer,
+    render_item_buffer:       GPUBuffer,
+    indirect_draw_ptr:        [^]vk.DrawIndexedIndirectCommand,
+    render_item_ptr:          [^]RenderItem,
+}
+
+Material :: struct {
+    base_color:   Vec4,
+    texture_index: u32,
+}
+
+Texture :: struct {
+	image_id:   u32,
+	sampler_id: u32,
 }
 
 VKGlobals :: struct {
@@ -53,7 +125,48 @@ VKGlobals :: struct {
 
     timeline_semaphore: vk.Semaphore,
     frame_resources:    [MAX_FRAMES_IN_FLIGHT]FrameResources,
+
+    command_pool: vk.CommandPool, 
+
+	meshes:      [dynamic]Mesh,
+	vert_offset: u64,
+	idx_offset:  u64,
+
+	white_pixel_image_id: u32,
+	vertex_buffer_id:     u32,
+	index_buffer_id:      u32,
+	mat_buffer_id:        u32,
+
+    
+    vertecies :[dynamic]Vertex,
+    indicies : [dynamic]u32,
+
+	images:   [dynamic]GPUImage,
+	samplers: [dynamic]vk.Sampler,
+	textures: [dynamic]Texture,
+	buffers:  [dynamic]GPUBuffer,
+	materials: [dynamic]Material,
+
+	global_ds_layout: vk.DescriptorSetLayout,
+	global_desc_set:  vk.DescriptorSet,
+	desc_pool:        vk.DescriptorPool,
+
+	cam_distance: f32,
+	cam_yaw:      f32,
+	cam_pitch:    f32
+}
+
+Node :: struct {
+    translation:Vec3,
+    scale:Vec3,
+    roation:quaternion256,
+    transform:matrix[4,4]f32,
+    meshId:u32,
+    parentId:u32,
+    nextSiblingId:u32,
+    firstChildId:u32,
+    dirty:bool,
 }
 
 g :VKGlobals
-
+Nodes:[dynamic]Node

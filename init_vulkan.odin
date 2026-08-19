@@ -7,6 +7,7 @@ import vk "vendor:vulkan"
 import sdl "vendor:sdl3"
 import "core:log"
 import "core:fmt"
+import "vendor:cgltf"
 
 import vma "odin-vma" 
 import shaderc "shaderc" 
@@ -46,6 +47,7 @@ shutdown :: proc() {
         vk.DestroySemaphore(g.device,res.image_acquired_semaphore,nil)
         vk.DestroyCommandPool(g.device,res.command_pool,nil)
     }
+    vk.DestroyCommandPool(g.device,g.command_pool,nil)
 
     // pipeline cleanup
     if g.pipeline_layout != 0 {
@@ -136,6 +138,7 @@ createVulkanInstance::proc()-> bool {
     for i:u32=0;i<instExtcount;i+=1 {
         append(&requestedExtentions, cstring(sdlExtentions[i]))
     }
+    append(&requestedExtentions, "VK_EXT_swapchain_colorspace")
     //fmt.print(requestedExtentions)
 
     requestedLayers := []cstring{"VK_LAYER_KHRONOS_validation"}
@@ -640,6 +643,17 @@ createSyncResources :: proc() -> bool {
 }
 
 createCommandBuffers :: proc() -> bool {
+    poolInfo: vk.CommandPoolCreateInfo = {
+        sType = .COMMAND_POOL_CREATE_INFO,
+        flags = {.TRANSIENT},
+        queueFamilyIndex = g.graphics_queue_family_idx,
+    }
+
+    if vk.CreateCommandPool(g.device,&poolInfo,nil,&g.command_pool) != .SUCCESS {
+        fmt.print("Unable to create command pool")
+        return false
+    }
+     
     for &res in g.frame_resources {
         // we'll give each frame its own pool, faster cmd buffer resets this way
         poolInfo : vk.CommandPoolCreateInfo = {
