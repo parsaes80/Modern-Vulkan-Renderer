@@ -44,14 +44,16 @@ main :: proc() {
             }
         }
 
+        keys := sdl.GetKeyboardState(nil)
+        if keys[sdl.Scancode.ESCAPE] do g.running = false
+
         t_now := sdl.GetTicksNS()
         dt := t_now - t_last
         t_last = t_now
-
         fps := 1e9 / f64(dt)
 
         //uncomment to print framerate, for higher fps remove VK_LAYER_KHRONOS_validation
-        //fmt.printf("dt: %d ns | fps: %.1f\n", dt, fps)
+        //print("dt: %d ns | fps: %.1f\n", dt, fps)
 
         render()
     }

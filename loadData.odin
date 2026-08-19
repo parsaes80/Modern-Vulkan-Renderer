@@ -1,9 +1,14 @@
 package main
 
+import "vendor:cgltf"
 import vk "vendor:vulkan"
 import "core:fmt"
 import vma "odin-vma"
 import "core:mem"
+import "core:os"
+import "core:strings"
+import stbi "vendor:stb/image"
+
 
 createBuffer :: proc(usage: vk.BufferUsageFlags, byte_size: int, mappable: bool, memory_usage: vma.MemoryUsage) -> GPUBuffer {
 	// create buffer and vma allocation
@@ -37,7 +42,7 @@ mapCopyBufferData :: proc(buffer: GPUBuffer, buffer_offset: int, data: rawptr, b
 	// map and write buffer data
 	buff_ptr: rawptr
 	if vma.MapMemory(g.allocator, buffer.allocation, &buff_ptr) != .SUCCESS {
-		fmt.println("Unable to map buffer memory")
+		print("Unable to map buffer memory")
 		return
 	}
 	dst := rawptr(uintptr(buff_ptr) + uintptr(buffer_offset))
@@ -45,7 +50,7 @@ mapCopyBufferData :: proc(buffer: GPUBuffer, buffer_offset: int, data: rawptr, b
 	vma.UnmapMemory(g.allocator, buffer.allocation)
 }
 
-createImage :: proc(command_buffer: vk.CommandBuffer, image_data: [^]u32, width: u32, height: u32, channels: int) -> (u32, GPUBuffer) {
+createImage :: proc(command_buffer: vk.CommandBuffer, image_data: ^byte, width: u32, height: u32, channels: int) -> (u32, GPUBuffer) {
 	// create vk image and allocation
 	image_format := vk.Format.R8G8B8A8_SRGB
 	image_info := vk.ImageCreateInfo{
@@ -63,7 +68,7 @@ createImage :: proc(command_buffer: vk.CommandBuffer, image_data: [^]u32, width:
 	alloc_info := vma.AllocationCreateInfo{usage = .AUTO}
 	gpu_image: GPUImage
 	if vma.CreateImage(g.allocator, image_info, alloc_info, &gpu_image.image, &gpu_image.allocation, nil) != .SUCCESS {
-		fmt.println("Error creating image")
+		print("Error creating image")
 		return 0, GPUBuffer{}
 	}
 
@@ -79,7 +84,7 @@ createImage :: proc(command_buffer: vk.CommandBuffer, image_data: [^]u32, width:
 		},
 	}
 	if vk.CreateImageView(g.device, &img_view_info, nil, &gpu_image.image_view) != .SUCCESS {
-		fmt.println("Error creating image view")
+		print("Error creating image view")
 		return 0, GPUBuffer{}
 	}
 
@@ -149,8 +154,7 @@ createImage :: proc(command_buffer: vk.CommandBuffer, image_data: [^]u32, width:
 	return image_id, stage_buff
 }
 
-startTransientCommandBuffer::proc()-> vk.CommandBuffer 
-{
+startTransientCommandBuffer::proc()-> vk.CommandBuffer {
     cmdAllocInfo :vk.CommandBufferAllocateInfo = {
         sType = .COMMAND_BUFFER_ALLOCATE_INFO,
         commandPool = g.command_pool,
@@ -159,7 +163,7 @@ startTransientCommandBuffer::proc()-> vk.CommandBuffer
     } 
     commandBuffer : vk.CommandBuffer
     if vk.AllocateCommandBuffers(g.device, &cmdAllocInfo, &commandBuffer) != .SUCCESS{
-        fmt.print("Unable to allocate command buffer")
+        print("Unable to allocate command buffer")
         return nil
     }    
     beginInfo: vk.CommandBufferBeginInfo = {
@@ -167,7 +171,7 @@ startTransientCommandBuffer::proc()-> vk.CommandBuffer
         flags = {.ONE_TIME_SUBMIT}
     }
     if vk.BeginCommandBuffer(commandBuffer,&beginInfo) != .SUCCESS{
-        fmt.print("Unable to begin command buffer")
+        print("Unable to begin command buffer")
         vk.FreeCommandBuffers(g.device,g.command_pool,1,&commandBuffer)
         return nil
     }
@@ -190,6 +194,48 @@ submitTransientCommandBuffer :: proc(command_buffer: vk.CommandBuffer) {
 	vk.FreeCommandBuffers(g.device, g.command_pool, 1, &command_buffer)
 }
 
+loadImages::proc(model:^cgltf.data,imageDir:string)->[dynamic]Image{
+	images := make([dynamic]Image, len(model.images))
+	for i in 0 ..< len(model.images) {
+		img := &images[i]
+		uri := string(model.images[i].uri)
+		path := fmt.tprintf("./%s/%s", imageDir, uri)
+		fmt.printf("Loading image %d/%d: %s\n", i + 1, len(model.images), uri)
+
+		cpath := strings.clone_to_cstring(path, context.temp_allocator)
+		w, h, ch: i32
+		img.data = stbi.load(cpath, &w, &h, &ch, 4)
+		img.width = int(w)
+		img.height = int(h)
+		img.channels = 4
+
+		if img.data == nil {
+			print(fmt.tprintf("Failed to load image: %s, %v", path, stbi.failure_reason()))
+		}
+	}
+	return images
+}
+
+loadGltf:: proc(path:string) -> bool{
+    if !os.exists(path) do return false
+    options : cgltf.options
+    
+    cpath := strings.clone_to_cstring(path,context.temp_allocator)
+    data,res := cgltf.parse_file(options,cstring(cpath))
+    
+    if res!=.success {
+        print("Error parsing glTF file, error: ", res)
+        return false
+    }
+
+    loadImages(data,"/Sponza")
+
+
+    
+    cgltf.free(data)
+    return true
+}
+
 loadData::proc(){
     vertexBufferBytes := 64*1024*1024 //64 MB
     indexBufferBytes := 32*1024*1024 //32 MB
@@ -204,7 +250,7 @@ loadData::proc(){
         width = 1,
         height = 1,
         channels = 4,
-        data = &whitePixelData
+        data = cast(^u8)(&whitePixelData)
     }
 
     whiteImgCmdBuff := startTransientCommandBuffer()
@@ -213,4 +259,21 @@ loadData::proc(){
     submitTransientCommandBuffer(whiteImgCmdBuff)
     vma.DestroyBuffer(g.allocator,whiteStagingBuffer.vk_buffer,whiteStagingBuffer.allocation)
     
+    samplerInfo: vk.SamplerCreateInfo = {
+        sType = .SAMPLER_CREATE_INFO,
+        magFilter = .NEAREST,
+        minFilter = .NEAREST,
+        addressModeU = .REPEAT,
+        addressModeV = .REPEAT,
+        addressModeW = .REPEAT,
+        compareEnable = false
+    }
+    sampler: vk.Sampler
+    if vk.CreateSampler(g.device,&samplerInfo,nil,&sampler) != .SUCCESS {
+        print("Unable to create texture sampler")
+    }
+    append(&g.samplers, sampler)
+    append(&g.textures, Texture{g.white_pixel_image_id,0})
+
+    loadGltf("Sponza/Sponza.gltf")
 }

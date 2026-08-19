@@ -35,7 +35,7 @@ Image::struct
 	width:int,
 	height:int,
 	channels:int,
-	data:^u32
+	data:^byte
 }
 
 FrameConstants :: struct

@@ -35,6 +35,8 @@ debugCallback ::  proc "system" (
 	return false
 }
 
+print::proc{fmt.println}
+
 shutdown :: proc() {
     // wait in case resources are in use
     vk.DeviceWaitIdle(g.device)
@@ -47,8 +49,13 @@ shutdown :: proc() {
         vk.DestroySemaphore(g.device,res.image_acquired_semaphore,nil)
         vk.DestroyCommandPool(g.device,res.command_pool,nil)
     }
+    
+    //whiteTextureCleanup
     vk.DestroyCommandPool(g.device,g.command_pool,nil)
-
+    vk.DestroyImageView(g.device,g.images[0].image_view,nil)
+    vk.DestroyImage(g.device,g.images[0].image,nil)
+    vk.DestroySampler(g.device,g.samplers[0],nil)
+    
     // pipeline cleanup
     if g.pipeline_layout != 0 {
         vk.DestroyPipelineLayout(g.device, g.pipeline_layout, nil)
@@ -139,7 +146,7 @@ createVulkanInstance::proc()-> bool {
         append(&requestedExtentions, cstring(sdlExtentions[i]))
     }
     append(&requestedExtentions, "VK_EXT_swapchain_colorspace")
-    //fmt.print(requestedExtentions)
+    //print(requestedExtentions)
 
     requestedLayers := []cstring{"VK_LAYER_KHRONOS_validation"}
     
@@ -212,7 +219,7 @@ findPhysicalDevice :: proc() -> bool {
     }
 
     if !format_supported {
-        fmt.print("Requested swapchain format is not supported by the surface")
+        print("Requested swapchain format is not supported by the surface")
         return false
     }
 
@@ -261,13 +268,14 @@ create_device :: proc() -> bool {
     // check if what we need is supported
     if !supported_features_13.dynamicRendering || !supported_features_13.synchronization2 ||
        !supported_features_12.timelineSemaphore {
-        fmt.print("Physical device doesn't meet the feature requirements")
+        print("Physical device doesn't meet the feature requirements")
         return false
     }
 
     // produce a separate features struct chain for device creation
     features_14 : vk.PhysicalDeviceVulkan14Features = {
         sType = .PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
+        hostImageCopy = false,
         pNext = nil,
     }
     features_13 : vk.PhysicalDeviceVulkan13Features = {
@@ -279,9 +287,23 @@ create_device :: proc() -> bool {
     features_12 : vk.PhysicalDeviceVulkan12Features = {
         sType            = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         pNext            = &features_13,
+        descriptorIndexing = true,
+        shaderSampledImageArrayNonUniformIndexing = true,
+        descriptorBindingPartiallyBound = true,
+        runtimeDescriptorArray =true,
+        scalarBlockLayout = true,
+        bufferDeviceAddress = true,
         timelineSemaphore = true,
+
     }
-    features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &features_12}
+    features : vk.PhysicalDeviceFeatures2 = {
+        sType = .PHYSICAL_DEVICE_FEATURES_2,
+        pNext = &features_12,
+        features = {
+            multiDrawIndirect = true,
+            shaderInt64 = true
+        }
+    }
 
     device_extensions := [?]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
 
@@ -302,7 +324,7 @@ create_device :: proc() -> bool {
     // grab the VkQueue object finally
     vk.GetDeviceQueue(g.device, g.graphics_queue_family_idx, 0, &g.graphics_queue)
     if g.graphics_queue == nil {
-        fmt.print("Couldn't get the graphics queue")
+        print("Couldn't get the graphics queue")
         return false
     }
     vk.load_proc_addresses(g.device)
@@ -314,7 +336,7 @@ initializeVMA::proc()->bool{
     vma_vulkan_functions := vma.create_vulkan_functions()
 
     vma_create_info: vma.AllocatorCreateInfo = {
-        flags            = { .BUFFER_DEVICE_ADDRESS },
+        flags            = {.BUFFER_DEVICE_ADDRESS},
         instance         = g.instance,
         physicalDevice   = g.physical_device,
         device           = g.device,
@@ -375,7 +397,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
             },
         }
         if vk.CreateImageView(g.device, &imgViewInfo, nil, &g.swapchain_views[i]) != .SUCCESS {
-            fmt.print("Error creating swapchain image view")
+            print("Error creating swapchain image view")
             return false
         }
     }
@@ -385,7 +407,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
     for &semaphore in g.render_complete_semaphores {
         semaphoreInfo := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO}
         if vk.CreateSemaphore(g.device, &semaphoreInfo, nil, &semaphore) != .SUCCESS {
-            fmt.print("Error creating the render-complete semaphore")
+            print("Error creating the render-complete semaphore")
             return false
         }
     }
@@ -409,7 +431,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
         usage = .AUTO,
     }
     if vma.CreateImage(g.allocator, depthCreateInfo, allocInfo, &g.depth_image, &g.depth_image_allocation, nil) != .SUCCESS {
-        fmt.print("Error allocating depth image")
+        print("Error allocating depth image")
         return false
     }
 
@@ -425,7 +447,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
         },
     }
     if vk.CreateImageView(g.device, &depthImgViewInfo, nil, &g.depth_image_view) != .SUCCESS {
-        fmt.print("Error creating depth image view")
+        print("Error creating depth image view")
         return false
     }
     return true
@@ -439,7 +461,7 @@ create_shader_module :: proc(filename: string, kind: shaderc.shaderKind) -> vk.S
 
     defer delete(src_bytes)
 
-    fmt.println("Compiling shader:", shader_path)
+    print("Compiling shader:", shader_path)
 
     compiler := shaderc.compiler_initialize()
     defer shaderc.compiler_release(compiler)
@@ -469,7 +491,7 @@ create_shader_module :: proc(filename: string, kind: shaderc.shaderKind) -> vk.S
 
     if shaderc.result_get_compilation_status(result) != .Success {
         err_msg := shaderc.result_get_error_message(result)
-        fmt.println("Shader Compilation Error:", err_msg)
+        print("Shader Compilation Error:", err_msg)
         return 0
     }
 
@@ -484,7 +506,7 @@ create_shader_module :: proc(filename: string, kind: shaderc.shaderKind) -> vk.S
 
     shader_module: vk.ShaderModule
     if vk.CreateShaderModule(g.device, &module_create_info, nil, &shader_module) != .SUCCESS {
-        fmt.println("Error creating shader module")
+        print("Error creating shader module")
         return 0
     }
 
@@ -506,7 +528,7 @@ createGraphicsPipeline :: proc() -> bool {
         pushConstantRangeCount = 0,
     }
     if vk.CreatePipelineLayout(g.device, &pipeline_layout_info, nil, &g.pipeline_layout) != .SUCCESS {
-        fmt.print("unable to create pipeline layout")
+        print("unable to create pipeline layout")
         return false
     }
     entryPoint: cstring = "main"
@@ -608,7 +630,7 @@ createGraphicsPipeline :: proc() -> bool {
         renderPass          = 0,
     }
     if vk.CreateGraphicsPipelines(g.device, 0, 1, &pipelineInfo, nil, &g.pipeline) != .SUCCESS {
-        fmt.print("Error creating the pipeline")
+        print("Error creating the pipeline")
         return false
     }
     return true
@@ -625,7 +647,7 @@ createSyncResources :: proc() -> bool {
         pNext = &semaphoreTypeInfo,
     }
     if vk.CreateSemaphore(g.device, &semaphoreInfo, nil, &g.timeline_semaphore) != .SUCCESS {
-        fmt.print("Unable to create the timeline semaphore")
+        print("Unable to create the timeline semaphore")
         return false
     }
 
@@ -634,7 +656,7 @@ createSyncResources :: proc() -> bool {
         // create the binary semaphores
         frame_semaphore_info := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO}
         if vk.CreateSemaphore(g.device, &frame_semaphore_info, nil, &res.image_acquired_semaphore) != .SUCCESS {
-            fmt.print("Error creating the per-frame image-acquire semaphore")
+            print("Error creating the per-frame image-acquire semaphore")
             return false
         }
     }
@@ -650,7 +672,7 @@ createCommandBuffers :: proc() -> bool {
     }
 
     if vk.CreateCommandPool(g.device,&poolInfo,nil,&g.command_pool) != .SUCCESS {
-        fmt.print("Unable to create command pool")
+        print("Unable to create command pool")
         return false
     }
      
@@ -661,7 +683,7 @@ createCommandBuffers :: proc() -> bool {
             queueFamilyIndex = g.graphics_queue_family_idx,
         }
         if vk.CreateCommandPool(g.device, &poolInfo, nil, &res.command_pool) != .SUCCESS {
-            fmt.print("Unable to create command buffer pool")
+            print("Unable to create command buffer pool")
             return false
         }
 
@@ -673,7 +695,7 @@ createCommandBuffers :: proc() -> bool {
             commandBufferCount = 1,
         }
         if vk.AllocateCommandBuffers(g.device, &cmdAllocInfo, &res.command_buffer) != .SUCCESS {
-            fmt.print("Unable to allocate command buffer")
+            print("Unable to allocate command buffer")
             return false
         }
     }
