@@ -13,26 +13,23 @@ import vma "odin-vma"
 import shaderc "shaderc" 
 
 debugCallback ::  proc "system" (
-	messageSeverity: vk.DebugUtilsMessageSeverityFlagsEXT,
-	messageTypes: vk.DebugUtilsMessageTypeFlagsEXT,
-	pCallbackData: ^vk.DebugUtilsMessengerCallbackDataEXT,
-	pUserData: rawptr,) -> b32 {
-
-	context = g.ctx
-
-	level: log.Level
-	if .ERROR in messageSeverity {
-		level = .Error
-	} else if .WARNING in messageSeverity {
-		level = .Warning
-	} else if .INFO in messageSeverity {
-		level = .Info
-	} else {
-		level = .Debug
-	}
-
-	log.logf(level, "vulkan[%v]: %s", messageTypes, pCallbackData.pMessage)
-	return false
+    messageSeverity: vk.DebugUtilsMessageSeverityFlagsEXT,
+    messageTypes: vk.DebugUtilsMessageTypeFlagsEXT,
+    pCallbackData: ^vk.DebugUtilsMessengerCallbackDataEXT,
+    pUserData: rawptr,) -> b32 {    
+    context = g.ctx 
+    level: log.Level
+    if .ERROR in messageSeverity {
+        level = .Error
+    } else if .WARNING in messageSeverity {
+        level = .Warning
+    } else if .INFO in messageSeverity {
+        level = .Info
+    } else {
+        level = .Debug
+    }   
+    log.logf(level, "vulkan[%v]: %s", messageTypes, pCallbackData.pMessage)
+    return false
 }
 
 print::proc{fmt.println}
@@ -96,6 +93,16 @@ shutdown :: proc() {
         sdl.DestroyWindow(g.window)
     }
     sdl.Quit()
+
+    delete(g.images)
+    delete(g.samplers)
+    delete(g.textures)
+    delete(g.buffers)
+    delete(g.materials)
+    delete(g.meshes)
+    delete(g.vertecies)
+    delete(g.indicies)
+    delete(g.swapchain_images)
 }
 
 destroySwapchain :: proc() {
@@ -249,7 +256,7 @@ findGraphicsQueue::proc()->bool{
     return false
 }
 
-create_device :: proc() -> bool {
+createDevice :: proc() -> bool {
     queue_priority: f32 = 1.0
     gfx_queue_info : vk.DeviceQueueCreateInfo = {
         sType            = .DEVICE_QUEUE_CREATE_INFO,
@@ -379,8 +386,8 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
     imageCount: u32 = 0
     vk.GetSwapchainImagesKHR(g.device, g.swapchain, &imageCount, nil)
     g.swapchain_images = make([]vk.Image, imageCount)
-    vk.GetSwapchainImagesKHR(g.device, g.swapchain, &imageCount, raw_data(g.swapchain_images))
 
+    vk.GetSwapchainImagesKHR(g.device, g.swapchain, &imageCount, raw_data(g.swapchain_images))
     g.swapchain_views = make([]vk.ImageView, imageCount)
 
     // create the swapchain image views
@@ -453,7 +460,7 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
     return true
 }
 
-create_shader_module :: proc(filename: string, kind: shaderc.shaderKind) -> vk.ShaderModule {
+createShaderModule :: proc(filename: string, kind: shaderc.shaderKind) -> vk.ShaderModule {
     shader_path := strings.concatenate({"shaders/", filename})
     defer delete(shader_path)
 
@@ -514,9 +521,9 @@ create_shader_module :: proc(filename: string, kind: shaderc.shaderKind) -> vk.S
 }
 
 createShaders :: proc() -> bool {
-    g.vert_shader_module = create_shader_module("shader.vert", .VertexShader)
+    g.vert_shader_module = createShaderModule("shader.vert", .VertexShader)
     if g.vert_shader_module == 0 {return false}
-    g.frag_shader_module = create_shader_module("shader.frag", .FragmentShader)
+    g.frag_shader_module = createShaderModule("shader.frag", .FragmentShader)
     if g.frag_shader_module == 0 {return false}
     return true
 }
@@ -704,14 +711,14 @@ createCommandBuffers :: proc() -> bool {
 
 initializeVulkan :: proc(){
     res : bool
-    res = createVulkanInstance()        ; assert(res!=false)
-    res = createSurface()               ; assert(res!=false)
-    res = findPhysicalDevice()          ; assert(res!=false)
-    res = create_device()               ; assert(res!=false)
-    res = initializeVMA()               ; assert(res!=false)
-    res = createSwapchain(g.width,g.height) ; assert(res!=false)
-    res = createShaders()               ; assert(res!=false)
-    res = createGraphicsPipeline()      ; assert(res!=false)
-    res = createSyncResources()         ; assert(res!=false)
-    res = createCommandBuffers()        ; assert(res!=false)
+    res = createVulkanInstance()           ; assert(res!=false)
+    res = createSurface()                  ; assert(res!=false)
+    res = findPhysicalDevice()             ; assert(res!=false)
+    res = createDevice()                   ; assert(res!=false)
+    res = initializeVMA()                  ; assert(res!=false)
+    res = createSwapchain(g.width,g.height); assert(res!=false)
+    res = createShaders()                  ; assert(res!=false)
+    res = createGraphicsPipeline()         ; assert(res!=false)
+    res = createSyncResources()            ; assert(res!=false)
+    res = createCommandBuffers()           ; assert(res!=false)
 }
