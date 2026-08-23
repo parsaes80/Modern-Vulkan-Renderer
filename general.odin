@@ -85,6 +85,11 @@ Texture :: struct {
     sampler_id: u32,
 }
 
+RenderStack::struct{
+    node_ptr:^Node,
+    mat:     matrix[4,4]f32
+} 
+
 VKGlobals :: struct {
     ctx:                runtime.Context,
 
@@ -159,6 +164,7 @@ VKGlobals :: struct {
     node_world:       NodeWorld,
     root_node_id:     u32,
     last_root_node_id:u32,
+    node_render_stack:[dynamic]RenderStack
 }
 
 g :VKGlobals

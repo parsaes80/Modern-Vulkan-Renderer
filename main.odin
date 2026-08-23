@@ -8,7 +8,6 @@ import "core:fmt"
 import "core:mem"
 
 main :: proc() {
-    //context.logger = log.create_console_logger()
     
     // track: mem.Tracking_Allocator
     // mem.tracking_allocator_init(&track, context.allocator)
@@ -42,6 +41,9 @@ main :: proc() {
     g.height = 1080
     g.next_signal_value = MAX_FRAMES_IN_FLIGHT + 1
 
+    nodeWorldInit(&g.node_world,2048)
+    reserve(&g.node_render_stack,256)
+
     g.ctx = context
     res := sdl.Init({.VIDEO}); assert(res, "init failed")
     g.window = sdl.CreateWindow("vk", i32(g.width), i32(g.height), {.VULKAN, .RESIZABLE}); assert(g.window != nil)
@@ -72,7 +74,7 @@ main :: proc() {
         fps := 1e9 / f64(dt)
 
         //uncomment to print framerate, for higher fps remove VK_LAYER_KHRONOS_validation
-        //print("dt: %d ns | fps: %.1f\n", dt, fps)
+        //print(" fps: %.1f\n", fps)
 
         render()
     }

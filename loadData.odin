@@ -10,6 +10,10 @@ import "core:os"
 import "core:strings"
 import stbi "vendor:stb/image"
 
+addBuffer :: proc(buffer: GPUBuffer) -> u32 {
+	append(&g.buffers, buffer)
+	return u32(len(g.buffers))
+}
 
 createBuffer :: proc(usage: vk.BufferUsageFlags, byte_size: int, mappable: bool, memory_usage: vma.MemoryUsage) -> GPUBuffer {
     // create buffer and vma allocation
@@ -503,45 +507,123 @@ loadGltf:: proc(path:string) -> bool{
 	return true
 }
 
+updateTextureDescriptors :: proc() {
+	// create combined image & sampler descriptor writes for all textures
+	image_descriptors := make([]vk.DescriptorImageInfo, len(g.textures), context.temp_allocator)
+	for texture, i in g.textures {
+		image_descriptors[i] = vk.DescriptorImageInfo{
+			sampler     = g.samplers[texture.sampler_id - 1],
+			imageView   = g.images[texture.image_id - 1].image_view,
+			imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+		}
+	}
+	desc_set_write := vk.WriteDescriptorSet{
+		sType            = .WRITE_DESCRIPTOR_SET,
+		dstSet           = g.global_desc_set,
+		dstBinding       = 0,
+		dstArrayElement  = 0,
+		descriptorCount  = u32(len(image_descriptors)),
+		descriptorType   = .COMBINED_IMAGE_SAMPLER,
+		pImageInfo       = raw_data(image_descriptors),
+	}
+	vk.UpdateDescriptorSets(g.device, 1, &desc_set_write, 0, nil)
+}
 
-loadData::proc(){
-    vertexBufferBytes := 64*1024*1024 //64 MB
-    indexBufferBytes := 32*1024*1024 //32 MB
-    totalVerts := vertexBufferBytes / size_of(Vertex)
-    totalIndicies := indexBufferBytes / size_of(u32)
-    resize(&g.vertecies, totalVerts)
-    resize(&g.indicies, totalIndicies)
+loadData :: proc() -> bool {
+	vertexBufferSizeInBytes := 64 * 1024 * 1024 // 64 MB
+	indexBufferSizeInBytes := 32 * 1024 * 1024  // 32 MB
+	totalVerts := vertexBufferSizeInBytes / size_of(Vertex)
+	totalIndicies := indexBufferSizeInBytes / size_of(u32)
+	resize(&g.vertecies, totalVerts)
+	resize(&g.indicies, totalIndicies)
 
-    whitePixelData : u32 = 0xFFFFFFFF
-    
-    whitePixel : Image = {
-        width = 1,
-        height = 1,
-        channels = 4,
-        data = cast(^u8)(&whitePixelData)
-    }
+	whitePixelData: u32 = 0xFFFFFFFF
+	whitePixel: Image = {
+		width    = 1,
+		height   = 1,
+		channels = 4,
+		data     = cast(^u8)(&whitePixelData),
+	}
 
-    whiteImgCmdBuff := startTransientCommandBuffer()
-    whiteImageId, whiteStagingBuffer := createImage(whiteImgCmdBuff,whitePixel.data,u32(whitePixel.width),u32(whitePixel.height),4)
-    g.white_pixel_image_id = whiteImageId
-    submitTransientCommandBuffer(whiteImgCmdBuff)
-    vma.DestroyBuffer(g.allocator,whiteStagingBuffer.vk_buffer,whiteStagingBuffer.allocation)
-    
-    samplerInfo: vk.SamplerCreateInfo = {
-        sType = .SAMPLER_CREATE_INFO,
-        magFilter = .NEAREST,
-        minFilter = .NEAREST,
-        addressModeU = .REPEAT,
-        addressModeV = .REPEAT,
-        addressModeW = .REPEAT,
-        compareEnable = false
-    }
-    sampler: vk.Sampler
-    if vk.CreateSampler(g.device,&samplerInfo,nil,&sampler) != .SUCCESS {
-        print("Unable to create texture sampler")
-    }
-    append(&g.samplers, sampler)
-    append(&g.textures, Texture{g.white_pixel_image_id,0})
+	whiteImgCmdBuff := startTransientCommandBuffer()
+	whiteImageId, whiteStagingBuffer := createImage(whiteImgCmdBuff, whitePixel.data, u32(whitePixel.width), u32(whitePixel.height), 4)
+	g.white_pixel_image_id = whiteImageId
+	submitTransientCommandBuffer(whiteImgCmdBuff)
+	vma.DestroyBuffer(g.allocator, whiteStagingBuffer.vk_buffer, whiteStagingBuffer.allocation)
 
-    loadGltf("Sponza/Sponza.gltf")
+	samplerInfo: vk.SamplerCreateInfo = {
+		sType         = .SAMPLER_CREATE_INFO,
+		magFilter     = .NEAREST,
+		minFilter     = .NEAREST,
+		addressModeU  = .REPEAT,
+		addressModeV  = .REPEAT,
+		addressModeW  = .REPEAT,
+		compareEnable = false,
+	}
+	sampler: vk.Sampler
+	if vk.CreateSampler(g.device, &samplerInfo, nil, &sampler) != .SUCCESS {
+		print("Unable to create texture sampler")
+		return false
+	}
+	append(&g.samplers, sampler)
+	whiteSamplerId := u32(len(g.samplers))
+	append(&g.textures, Texture{g.white_pixel_image_id, whiteSamplerId})
+
+	loadGltf("Sponza/Sponza.gltf")
+
+	root := getNode(&g.node_world, g.root_node_id)
+	setScale(root, Vec3{0.01, 0.01, 0.01})
+	setTranslation(root, Vec3{0, -5, 0})
+
+	vertexBufferStage := createBuffer({.TRANSFER_SRC}, vertexBufferSizeInBytes, true, .AUTO)
+	if vertexBufferStage.vk_buffer == 0 {
+		print("Error creating vertex staging buffer")
+		return false
+	}
+	indexBufferStage := createBuffer({.TRANSFER_SRC}, indexBufferSizeInBytes, true, .AUTO)
+	if indexBufferStage.vk_buffer == 0 {
+		print("Error creating index staging buffer")
+		return false
+	}
+
+	vertexBuffer := createBuffer({.TRANSFER_DST, .SHADER_DEVICE_ADDRESS}, vertexBufferSizeInBytes, false, .AUTO)
+	if vertexBuffer.vk_buffer == 0 {
+		print("Error creating vertex Buffer")
+		return false
+	}
+	g.vertex_buffer_id = addBuffer(vertexBuffer)
+	mapCopyBufferData(vertexBufferStage, 0, raw_data(g.vertecies), vertexBufferSizeInBytes)
+
+	indexBuffer := createBuffer({.TRANSFER_DST, .INDEX_BUFFER}, indexBufferSizeInBytes, false, .AUTO)
+	if indexBuffer.vk_buffer == 0 {
+		print("Error creating index Buffer")
+		return false
+	}
+	g.index_buffer_id = addBuffer(indexBuffer)
+	mapCopyBufferData(indexBufferStage, 0, raw_data(g.indicies), indexBufferSizeInBytes)
+
+	// copy staged geo data to VRAM
+	geoCmdBuffer := startTransientCommandBuffer()
+	buffCopyVerts := vk.BufferCopy{srcOffset = 0, dstOffset = 0, size = vk.DeviceSize(vertexBufferSizeInBytes)}
+	vk.CmdCopyBuffer(geoCmdBuffer, vertexBufferStage.vk_buffer, vertexBuffer.vk_buffer, 1, &buffCopyVerts)
+	buffCopyIndices := vk.BufferCopy{srcOffset = 0, dstOffset = 0, size = vk.DeviceSize(indexBufferSizeInBytes)}
+	vk.CmdCopyBuffer(geoCmdBuffer, indexBufferStage.vk_buffer, indexBuffer.vk_buffer, 1, &buffCopyIndices)
+	submitTransientCommandBuffer(geoCmdBuffer)
+
+	vma.DestroyBuffer(g.allocator, vertexBufferStage.vk_buffer, vertexBufferStage.allocation)
+	vma.DestroyBuffer(g.allocator, indexBufferStage.vk_buffer, indexBufferStage.allocation)
+
+	updateTextureDescriptors()
+
+	// material buffer
+	matDataBytes := len(g.materials) * size_of(Material)
+	matBuffer := createBuffer({.STORAGE_BUFFER, .SHADER_DEVICE_ADDRESS}, matDataBytes, true, .AUTO)
+	if matBuffer.vk_buffer == 0 {
+		print("Error creating material buffer")
+		return false
+	}
+	g.mat_buffer_id = addBuffer(matBuffer)
+	mapCopyBufferData(matBuffer, 0, raw_data(g.materials), matDataBytes)
+
+	return true
 }
