@@ -19,7 +19,7 @@ createBuffer :: proc(usage: vk.BufferUsageFlags, byte_size: int, mappable: bool,
     // create buffer and vma allocation
     buff_info := vk.BufferCreateInfo{
         sType       = .BUFFER_CREATE_INFO,
-        size        = vk.DeviceSize(byte_size),
+        size        = cast(vk.DeviceSize)byte_size,
         usage       = usage,
         sharingMode = .EXCLUSIVE,
     }
@@ -314,13 +314,19 @@ loadTextures :: proc(model: ^cgltf.data, image_ids: [dynamic]u32, sampler_ids: [
 	samplers_base := raw_data(model.samplers)
 
 	for &tex, i in model.textures {
-		image_idx   := int(uintptr(tex.image_)   - uintptr(images_base))   / size_of(cgltf.image)
-		sampler_idx := int(uintptr(tex.sampler) - uintptr(samplers_base)) / size_of(cgltf.sampler)
+		image_id: u32 = g.white_pixel_image_id
+		if tex.image_ != nil {
+			image_idx := int(uintptr(tex.image_) - uintptr(images_base)) / size_of(cgltf.image)
+			image_id = image_ids[image_idx]
+		}
 
-		append(&g.textures, Texture{
-			image_id   = image_ids[image_idx],
-			sampler_id = sampler_ids[sampler_idx],
-		})
+		sampler_id: u32 = 1 // your first-created (fallback/default) sampler, from loadData
+		if tex.sampler != nil {
+			sampler_idx := int(uintptr(tex.sampler) - uintptr(samplers_base)) / size_of(cgltf.sampler)
+			sampler_id = sampler_ids[sampler_idx]
+		}
+
+		append(&g.textures, Texture{image_id = image_id, sampler_id = sampler_id})
 		texture_ids[i] = u32(len(g.textures))
 	}
 	return texture_ids
@@ -361,7 +367,11 @@ loadMeshes :: proc(model: ^cgltf.data, material_ids: [dynamic]u32) -> [dynamic]u
 		mesh.sub_meshes = make([dynamic]SubMesh, len(gltf_mesh.primitives))
 
 		for &prim, s in gltf_mesh.primitives {
-			mat_idx := int(uintptr(prim.material) - uintptr(materials_base)) / size_of(cgltf.material)
+			mat_idx: int = -1
+            if prim.material != nil {
+                mat_idx = int(uintptr(prim.material) - uintptr(materials_base)) / size_of(cgltf.material)
+            }
+            mesh.sub_meshes[s].material_id = mat_idx >= 0 ? material_ids[mat_idx] : 0
 			mesh.sub_meshes[s].material_id = material_ids[mat_idx]
 			mesh.sub_meshes[s].vertex_start = g.vert_offset
 
@@ -418,6 +428,9 @@ loadMeshes :: proc(model: ^cgltf.data, material_ids: [dynamic]u32) -> [dynamic]u
 		append(&g.meshes, mesh)
 		mesh_ids[mi] = u32(len(g.meshes))
 	}
+
+    for &v in g.vertecies {v.color = Vec3{1, 1, 1}} //fix no material causing black
+
 	return mesh_ids
 }
 

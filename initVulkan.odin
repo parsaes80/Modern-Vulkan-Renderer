@@ -37,21 +37,30 @@ print::proc{fmt.println}
 shutdown :: proc() {
     // wait in case resources are in use
     vk.DeviceWaitIdle(g.device)
+    
+    vk.DestroyDescriptorSetLayout(g.device,g.global_ds_layout,nil)
+    vk.DestroyDescriptorPool(g.device,g.desc_pool,nil)
 
-    // // single-use command buffer pool
-    vk.DestroySemaphore(g.device, g.timeline_semaphore, nil)
-
+    for &img in g.images{
+        vk.DestroyImageView(g.device,img.image_view,nil)
+        vk.DestroyImage(g.device,img.image,nil)
+        vma.FreeMemory(g.allocator,img.allocation)
+    }
+    for sampler in g.samplers{
+        vk.DestroySampler(g.device,sampler,nil)
+    }
+    for &buff in g.buffers{
+        vk.DestroyBuffer(g.device,buff.vk_buffer,nil)
+        vma.FreeMemory(g.allocator,buff.allocation)
+    }
+    
     // // frame / sync object cleanup
     for res in g.frame_resources{
         vk.DestroySemaphore(g.device,res.image_acquired_semaphore,nil)
         vk.DestroyCommandPool(g.device,res.command_pool,nil)
     }
     
-    //whiteTextureCleanup
-    vk.DestroyCommandPool(g.device,g.command_pool,nil)
-    vk.DestroyImageView(g.device,g.images[0].image_view,nil)
-    vk.DestroyImage(g.device,g.images[0].image,nil)
-    vk.DestroySampler(g.device,g.samplers[0],nil)
+    vk.DestroySemaphore(g.device, g.timeline_semaphore, nil)
     
     // pipeline cleanup
     if g.pipeline_layout != 0 {
@@ -155,13 +164,23 @@ createVulkanInstance::proc()-> bool {
     append(&requestedExtentions, "VK_EXT_swapchain_colorspace")
     //print(requestedExtentions)
 
-    requestedLayers := []cstring{"VK_LAYER_KHRONOS_validation"}
-    
+    //requestedLayers := []cstring{"VK_LAYER_KHRONOS_validation"}
+    requestedLayers := []cstring{}
+
+    enabledFeatures : []vk.ValidationFeatureEnableEXT = {.GPU_ASSISTED}
+
+    validationFeatures := vk.ValidationFeaturesEXT{
+        sType                          = .VALIDATION_FEATURES_EXT,
+        enabledValidationFeatureCount  = 1,
+        pEnabledValidationFeatures     = &enabledFeatures[0],
+    }
+
     debugInfo : vk.DebugUtilsMessengerCreateInfoEXT = {
         sType=.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
         messageSeverity = {.VERBOSE,.WARNING,.ERROR},
         messageType = {.VALIDATION,.PERFORMANCE},
-        pfnUserCallback = debugCallback
+        pfnUserCallback = debugCallback,
+        //pNext = &validationFeatures
     }
 
     instCreateInfo : vk.InstanceCreateInfo = {
@@ -173,7 +192,6 @@ createVulkanInstance::proc()-> bool {
         enabledExtensionCount   = u32(len(requestedExtentions)),
         ppEnabledExtensionNames = raw_data(requestedExtentions),
     }
-
     
     vk.CreateInstance(&instCreateInfo,nil,&g.instance); assert(g.instance!=nil)
     vk.load_proc_addresses(g.instance)
@@ -272,6 +290,18 @@ createDevice :: proc() -> bool {
     supported_features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &supported_features_12}
     vk.GetPhysicalDeviceFeatures2(g.physical_device, &supported_features)
 
+    if !supported_features_13.dynamicRendering || !supported_features_13.synchronization2 ||
+    !supported_features_12.timelineSemaphore || !supported_features_12.bufferDeviceAddress ||
+    !supported_features_12.scalarBlockLayout || !supported_features_12.descriptorIndexing ||
+    !supported_features_12.descriptorBindingSampledImageUpdateAfterBind ||
+    !supported_features_12.descriptorBindingPartiallyBound ||
+    !supported_features_12.runtimeDescriptorArray ||
+    !supported_features.features.shaderInt64 ||
+    !supported_features.features.multiDrawIndirect{
+		print("Physical device doesn't meet the feature requirements");
+		return false;
+	}
+
     // check if what we need is supported
     if !supported_features_13.dynamicRendering || !supported_features_13.synchronization2 ||
        !supported_features_12.timelineSemaphore {
@@ -282,7 +312,7 @@ createDevice :: proc() -> bool {
     // produce a separate features struct chain for device creation
     features_14 : vk.PhysicalDeviceVulkan14Features = {
         sType = .PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
-        hostImageCopy = false,
+        hostImageCopy = true,
         pNext = nil,
     }
     features_13 : vk.PhysicalDeviceVulkan13Features = {
@@ -296,6 +326,7 @@ createDevice :: proc() -> bool {
         pNext            = &features_13,
         descriptorIndexing = true,
         shaderSampledImageArrayNonUniformIndexing = true,
+        descriptorBindingSampledImageUpdateAfterBind = true,
         descriptorBindingPartiallyBound = true,
         runtimeDescriptorArray =true,
         scalarBlockLayout = true,
@@ -308,7 +339,9 @@ createDevice :: proc() -> bool {
         pNext = &features_12,
         features = {
             multiDrawIndirect = true,
-            shaderInt64 = true
+            shaderInt64 = true,
+            robustBufferAccess = true,
+            drawIndirectFirstInstance = true, 
         }
     }
 
@@ -475,12 +508,14 @@ createShaderModule :: proc(filename: string, kind: shaderc.shaderKind) -> vk.Sha
 
     opts := shaderc.compile_options_initialize()
     defer shaderc.compile_options_release(opts)
-
+    
     shaderc.compile_options_set_target_env(opts, .Vulkan, u32(shaderc.envVersion.Vulkan1_4))
 
     shaderc.compile_options_set_target_spirv(opts, .Spv1_6)
 
     shaderc.compile_options_set_optimization_level(opts, .Performance)
+    //shaderc.compile_options_set_optimization_level(opts, .Zero)     
+	//shaderc.compile_options_set_generate_debug_info(opts)       
 
     filename_cstr := strings.clone_to_cstring(filename)
     defer delete(filename_cstr)
@@ -528,11 +563,76 @@ createShaders :: proc() -> bool {
     return true
 }
 
+createDescriptorSets :: proc() -> bool {
+	poolSizes: [1]vk.DescriptorPoolSize = {{
+		type            = .COMBINED_IMAGE_SAMPLER,
+		descriptorCount = MAX_TEXTURES,
+	}}
+	poolInfo: vk.DescriptorPoolCreateInfo = {
+		sType         = .DESCRIPTOR_POOL_CREATE_INFO,
+		flags         = {.UPDATE_AFTER_BIND},
+		maxSets       = 1,
+		poolSizeCount = len(poolSizes),
+		pPoolSizes    = &poolSizes[0],
+	}
+	if vk.CreateDescriptorPool(g.device, &poolInfo, nil, &g.desc_pool) != .SUCCESS {
+		print("Unable to create descriptor pool")
+		return false
+	}
+
+	// global descriptor set
+	bindings: [1]vk.DescriptorSetLayoutBinding = {{
+		binding         = 0,
+		descriptorType  = .COMBINED_IMAGE_SAMPLER,
+		descriptorCount = MAX_TEXTURES,
+		stageFlags      = {.FRAGMENT},
+	}}
+	bindingFlags: [1]vk.DescriptorBindingFlags = {{.PARTIALLY_BOUND, .UPDATE_AFTER_BIND}}
+	flagsInfo: vk.DescriptorSetLayoutBindingFlagsCreateInfo = {
+		sType         = .DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+		bindingCount  = len(bindingFlags),
+		pBindingFlags = &bindingFlags[0],
+	}
+	layoutInfo: vk.DescriptorSetLayoutCreateInfo = {
+		sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		pNext        = &flagsInfo,
+		flags        = {.UPDATE_AFTER_BIND_POOL},
+		bindingCount = len(bindings),
+		pBindings    = &bindings[0],
+	}
+	if vk.CreateDescriptorSetLayout(g.device, &layoutInfo, nil, &g.global_ds_layout) != .SUCCESS {
+		print("Unable to create descriptor set layout")
+		return false
+	}
+
+	// create the actual descriptor set
+	descSetAllocInfo: vk.DescriptorSetAllocateInfo = {
+		sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
+		descriptorPool     = g.desc_pool,
+		descriptorSetCount = 1,
+		pSetLayouts        = &g.global_ds_layout,
+	}
+	if vk.AllocateDescriptorSets(g.device, &descSetAllocInfo, &g.global_desc_set) != .SUCCESS {
+		print("Unable to allocate descriptor set")
+		return false
+	}
+	return true
+}
+
 createGraphicsPipeline :: proc() -> bool {
+    pushConstantsRange: vk.PushConstantRange = {
+        stageFlags = {.VERTEX,.FRAGMENT},
+        offset = 0,
+        size = size_of(FrameConstants) 
+    }
+    dsLayout : [1]vk.DescriptorSetLayout = {g.global_ds_layout}
+
     pipeline_layout_info := vk.PipelineLayoutCreateInfo{
         sType                  = .PIPELINE_LAYOUT_CREATE_INFO,
-        setLayoutCount         = 0,
-        pushConstantRangeCount = 0,
+        setLayoutCount         = cast(u32)len(dsLayout),
+        pSetLayouts            = &dsLayout[0],
+        pushConstantRangeCount = 1,
+        pPushConstantRanges = &pushConstantsRange,
     }
     if vk.CreatePipelineLayout(g.device, &pipeline_layout_info, nil, &g.pipeline_layout) != .SUCCESS {
         print("unable to create pipeline layout")
@@ -709,16 +809,44 @@ createCommandBuffers :: proc() -> bool {
     return true
 }
 
+createIndirectDrawBuffers :: proc() -> bool {
+	for &res in g.frame_resources {
+		// indirect drawing buffer
+		indirectBuffByteSize := g.node_world.max_nodes * size_of(vk.DrawIndexedIndirectCommand)
+		res.indirect_draw_buffer = createBuffer({.INDIRECT_BUFFER}, indirectBuffByteSize, true, .AUTO)
+		indBuffPtr: rawptr
+		if vma.MapMemory(g.allocator, res.indirect_draw_buffer.allocation, &indBuffPtr) != .SUCCESS {
+			print("Unable to map indirect draw buffer")
+			return false
+		}
+		res.indirect_draw_ptr = cast([^]vk.DrawIndexedIndirectCommand)indBuffPtr
+
+		// render item buffer (per-draw data)
+		renderItemByteSize := g.node_world.max_nodes * size_of(RenderItem)
+		res.render_item_buffer = createBuffer({.STORAGE_BUFFER, .SHADER_DEVICE_ADDRESS}, renderItemByteSize, true, .AUTO)
+		riBuffPtr: rawptr
+		if vma.MapMemory(g.allocator, res.render_item_buffer.allocation, &riBuffPtr) != .SUCCESS {
+			print("Unable to map render item buffer")
+			return false
+		}
+		res.render_item_ptr = cast([^]RenderItem)riBuffPtr
+	}
+	return true
+}
+
 initializeVulkan :: proc(){
     res : bool
     res = createVulkanInstance()           ; assert(res!=false)
     res = createSurface()                  ; assert(res!=false)
     res = findPhysicalDevice()             ; assert(res!=false)
+    res = findGraphicsQueue()              ; assert(res!=false) 
     res = createDevice()                   ; assert(res!=false)
     res = initializeVMA()                  ; assert(res!=false)
     res = createSwapchain(g.width,g.height); assert(res!=false)
     res = createShaders()                  ; assert(res!=false)
+    res = createDescriptorSets()           ; assert(res!=false)
     res = createGraphicsPipeline()         ; assert(res!=false)
     res = createSyncResources()            ; assert(res!=false)
     res = createCommandBuffers()           ; assert(res!=false)
+    res = createIndirectDrawBuffers()      ; assert(res!=false) 
 }

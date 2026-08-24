@@ -6,6 +6,7 @@ import "core:log"
 import "base:runtime"
 import "core:fmt"
 import "core:mem"
+import la "core:math/linalg"
 
 main :: proc() {
     
@@ -32,52 +33,68 @@ main :: proc() {
     g.swapchain_format.colorSpace = .SRGB_NONLINEAR
     
     //uncomment for HDR triangle if supported by monitor
-    g.swapchain_format.format = .A2B10G10R10_UNORM_PACK32
-    g.swapchain_format.colorSpace = .HDR10_ST2084_EXT
+    //g.swapchain_format.format = .A2B10G10R10_UNORM_PACK32
+    //g.swapchain_format.colorSpace = .HDR10_ST2084_EXT
 
     g.depth_format = .D32_SFLOAT
     g.running = true
-    g.width = 1080
+    g.width = 1800
     g.height = 1080
     g.next_signal_value = MAX_FRAMES_IN_FLIGHT + 1
 
-    nodeWorldInit(&g.node_world,2048)
-    reserve(&g.node_render_stack,256)
 
-    g.ctx = context
-    res := sdl.Init({.VIDEO}); assert(res, "init failed")
-    g.window = sdl.CreateWindow("vk", i32(g.width), i32(g.height), {.VULKAN, .RESIZABLE}); assert(g.window != nil)
+	nodeWorldInit(&g.node_world, 2048)
+	reserve(&g.node_render_stack, 256)
 
-    initializeVulkan()
-    loadData()
+	g.camera = make_camera()
+	g.mouse = make_mouse()
+
+	g.ctx = context
+	res := sdl.Init({.VIDEO}); assert(res, "init failed")
+	g.window = sdl.CreateWindow("vk", i32(g.width), i32(g.height), {.VULKAN, .RESIZABLE}); assert(g.window != nil)
+	res = sdl.SetWindowRelativeMouseMode(g.window, true) // locks + hides cursor, enables relative motion
+
+	initializeVulkan()
+	loadData()
     
-    t_last: u64 = sdl.GetTicksNS()
+	g.t0 = sdl.GetTicksNS()
 
-    event: sdl.Event
-    for g.running {
-        for sdl.PollEvent(&event) {
-            if event.type == sdl.EventType.QUIT {
-                g.running = false
-            } else if event.type == .WINDOW_RESIZED {
-                g.width = u32(event.window.data1)
-                g.height = u32(event.window.data2)
-                g.require_swapchain_recreate = true
-            }
-        }
+	event: sdl.Event
+	for g.running {
+		for sdl.PollEvent(&event) {
+			#partial switch event.type {
+			case .QUIT:
+				g.running = false
+			case .WINDOW_RESIZED:
+				g.width = u32(event.window.data1)
+				g.height = u32(event.window.data2)
+				g.require_swapchain_recreate = true
+			case .MOUSE_WHEEL:
+				process_mouse_scroll(&g.camera, event.wheel.y)
+			}
+		}
 
-        keys := sdl.GetKeyboardState(nil)
-        if keys[sdl.Scancode.ESCAPE] do g.running = false
+		t := sdl.GetTicksNS()
+		g.dt = t - g.t0
+		g.t0 = t
+		print("fps: ", 1e9 / f64(g.dt))
 
-        t_now := sdl.GetTicksNS()
-        dt := t_now - t_last
-        t_last = t_now
-        fps := 1e9 / f64(dt)
+		xrel, yrel: f32
+		flags := sdl.GetRelativeMouseState(&xrel, &yrel)
+		process_mouse_movement(&g.camera, &g.mouse, xrel, yrel)
 
-        //uncomment to print framerate, for higher fps remove VK_LAYER_KHRONOS_validation
-        //print(" fps: %.1f\n", fps)
+		keys := sdl.GetKeyboardState(nil)
+		if keys[sdl.Scancode.ESCAPE] do g.running = false
 
-        render()
-    }
+		dt_sec := f32(g.dt) / 1e9
+		camera_speed := 5 * dt_sec
+		if keys[sdl.Scancode.W] do g.camera.pos += camera_speed * g.camera.front
+		if keys[sdl.Scancode.S] do g.camera.pos -= camera_speed * g.camera.front
+		if keys[sdl.Scancode.A] do g.camera.pos -= la.normalize(la.cross(g.camera.front, g.camera.up)) * camera_speed
+		if keys[sdl.Scancode.D] do g.camera.pos += la.normalize(la.cross(g.camera.front, g.camera.up)) * camera_speed
 
-    shutdown()
+		render()
+	}
+
+	shutdown()
 }

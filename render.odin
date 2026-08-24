@@ -1,228 +1,332 @@
 package main
 
 import vk "vendor:vulkan"
+import "core:math"
+import la "core:math/linalg"
 
+make_camera :: proc() -> Camera {
+	cam := Camera{
+		pos   = {0, 0, 3},
+		up    = {0, 1, 0},
+		yaw   = -90,
+		pitch = 0,
+		fov   = 45,
+	}
+	update_camera_vectors(&cam)
+	return cam
+}
+
+make_mouse :: proc() -> Mouse {
+	return Mouse{sensitivity = 0.1, first_move = true}
+}
+
+update_camera_vectors :: proc(cam: ^Camera) {
+	yaw_r := math.to_radians(cam.yaw)
+	pitch_r := math.to_radians(cam.pitch)
+	front := Vec3{
+		math.cos(yaw_r) * math.cos(pitch_r),
+		math.sin(pitch_r),
+		math.sin(yaw_r) * math.cos(pitch_r),
+	}
+	cam.front = la.normalize(front)
+}
+
+process_mouse_movement :: proc(cam: ^Camera, mouse: ^Mouse, xrel, yrel: f32) {
+	cam.yaw += xrel * mouse.sensitivity
+	cam.pitch -= yrel * mouse.sensitivity // subtract: SDL's +y is downward on screen
+	cam.pitch = clamp(cam.pitch, -89, 89)
+	update_camera_vectors(cam)
+}
+
+process_mouse_scroll :: proc(cam: ^Camera, yoffset: f32) {
+	cam.fov -= yoffset
+	cam.fov = clamp(cam.fov, 1, 90)
+}
 render :: proc() {
-    // first check if our swapchain is still valid
-    if g.require_swapchain_recreate {
-        vk.DeviceWaitIdle(g.device)
-        destroySwapchain()
-        createSwapchain(g.width, g.height)
-        g.require_swapchain_recreate = false
-    }
+	// first check if our swapchain is still valid
+	if g.require_swapchain_recreate {
+		vk.DeviceWaitIdle(g.device)
+		destroySwapchain()
+		createSwapchain(g.width, g.height)
+		g.require_swapchain_recreate = false
+	}
 
-    frameResIndex := u32(g.frame_index) % MAX_FRAMES_IN_FLIGHT
-    g.frame_index += 1
-    signalValue := g.next_signal_value
-    g.next_signal_value += 1
-    waitValue := signalValue - MAX_FRAMES_IN_FLIGHT
+	frameResIndex := u32(g.frame_index) % MAX_FRAMES_IN_FLIGHT
+	g.frame_index += 1
+	signalValue := g.next_signal_value
+	g.next_signal_value += 1
+	waitValue := signalValue - MAX_FRAMES_IN_FLIGHT
 
-    waitInfo : vk.SemaphoreWaitInfo = {
-        sType          = .SEMAPHORE_WAIT_INFO,
-        semaphoreCount = 1,
-        pSemaphores    = &g.timeline_semaphore,
-        pValues        = &waitValue,
-    }
-    vk.WaitSemaphores(g.device, &waitInfo, max(u64))
+	waitInfo: vk.SemaphoreWaitInfo = {
+		sType          = .SEMAPHORE_WAIT_INFO,
+		semaphoreCount = 1,
+		pSemaphores    = &g.timeline_semaphore,
+		pValues        = &waitValue,
+	}
+	vk.WaitSemaphores(g.device, &waitInfo, max(u64))
 
-    // now its safe to start recording commands
-    res := &g.frame_resources[frameResIndex]
-    vk.ResetCommandPool(g.device, res.command_pool, {})
+	// now its safe to start recording commands
+	res := &g.frame_resources[frameResIndex]
+	vk.ResetCommandPool(g.device, res.command_pool, {})
 
-    // get the resources for this frame
-    imageAcquireSemaphore := res.image_acquired_semaphore
+	// get the resources for this frame
+	imageAcquireSemaphore := res.image_acquired_semaphore
 
-    imageIndex: u32 = 0
-    acquireResult := vk.AcquireNextImageKHR(g.device, g.swapchain, max(u64), imageAcquireSemaphore, 0, &imageIndex)
+	imageIndex: u32 = 0
+	acquireResult := vk.AcquireNextImageKHR(g.device, g.swapchain, max(u64), imageAcquireSemaphore, 0, &imageIndex)
 
-    // handle resize and out-of-date images, may need swapchain recreate
-    if acquireResult == .ERROR_OUT_OF_DATE_KHR {
-        g.require_swapchain_recreate = true
-        return
-    } else if acquireResult == .SUBOPTIMAL_KHR {
-        // can render this frame, recreate next time around
-        g.require_swapchain_recreate = true
-    }
+	// handle resize and out-of-date images, may need swapchain recreate
+	if acquireResult == .ERROR_OUT_OF_DATE_KHR {
+		g.require_swapchain_recreate = true
+		return
+	} else if acquireResult == .SUBOPTIMAL_KHR {
+		// can render this frame, recreate next time around
+		g.require_swapchain_recreate = true
+	}
 
-    // begin recording commands
-    cmdBeginInfo := vk.CommandBufferBeginInfo{
-        sType = .COMMAND_BUFFER_BEGIN_INFO,
-        flags = {.ONE_TIME_SUBMIT},
-    }
-    vk.BeginCommandBuffer(res.command_buffer, &cmdBeginInfo)
+	// traverse entire scene and record MDI draw commands
+	viewMatrix := la.matrix4_look_at_f32(g.camera.pos, g.camera.pos + g.camera.front, g.camera.up)
+	aspectRatio := f32(g.width) / f32(g.height)
+	projMatrix := la.matrix4_perspective_f32(math.to_radians_f32(g.camera.fov), aspectRatio, 0.01, 1000)
+	viewProjMatrix := projMatrix * viewMatrix
 
-    // transition the color and depth images
-    layoutBarriers : [2]vk.ImageMemoryBarrier2 =
-    {
-        {
-            sType         = .IMAGE_MEMORY_BARRIER_2,
-            srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
-            srcAccessMask = {},
-            dstStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
-            dstAccessMask = {.COLOR_ATTACHMENT_WRITE},
-            oldLayout     = .UNDEFINED,
-            newLayout     = .COLOR_ATTACHMENT_OPTIMAL,
-            image         = g.swapchain_images[imageIndex],
-            subresourceRange = {
-                aspectMask     = {.COLOR},
-                baseMipLevel   = 0,
-                levelCount     = 1,
-                baseArrayLayer = 0,
-                layerCount     = 1,
-            },
-        },
-        {
-            sType         = .IMAGE_MEMORY_BARRIER_2,
-            srcStageMask  = {.EARLY_FRAGMENT_TESTS},
-            srcAccessMask = {},
-            dstStageMask  = {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS}, // both specified to control memory access at both stages (write)
-            dstAccessMask = {.DEPTH_STENCIL_ATTACHMENT_WRITE},
-            oldLayout     = .UNDEFINED,
-            newLayout     = .DEPTH_ATTACHMENT_OPTIMAL,
-            image         = g.depth_image,
-            subresourceRange = {
-                aspectMask     = {.DEPTH},
-                baseMipLevel   = 0,
-                levelCount     = 1,
-                baseArrayLayer = 0,
-                layerCount     = 1,
-            },
-        },
-    }
-    depInfo : vk.DependencyInfo = {
-        sType                    = .DEPENDENCY_INFO,
-        imageMemoryBarrierCount  = u32(len(layoutBarriers)),
-        pImageMemoryBarriers     = raw_data(layoutBarriers[:]),
-    }
-    vk.CmdPipelineBarrier2(res.command_buffer, &depInfo)
+	// push root nodes to render-stack
+	clear(&g.node_render_stack)
+	nodeId := g.root_node_id
+	for nodeId != 0 {
+		node := getNode(&g.node_world, nodeId)
+		append(&g.node_render_stack, RenderStackLayer{node_ptr = node, mat = la.MATRIX4F32_IDENTITY})
+		nodeId = node.next_sibling_id
+	}
 
-    // setup the attachments (color and depth) and begin rendering (dynamic)
-    colorAttachInfo : vk.RenderingAttachmentInfo = {
-        sType       = .RENDERING_ATTACHMENT_INFO,
-        imageView   = g.swapchain_views[imageIndex],
-        imageLayout = .COLOR_ATTACHMENT_OPTIMAL,
-        loadOp      = .CLEAR, // clear the image
-        storeOp     = .STORE, // keep data for presentation
-        clearValue  = {color = {float32 = {0.01, 0.01, 0.01, 1}}},
-    }
-    depthAttachInfo : vk.RenderingAttachmentInfo = {
-        sType       = .RENDERING_ATTACHMENT_INFO,
-        imageView   = g.depth_image_view,
-        imageLayout = .DEPTH_ATTACHMENT_OPTIMAL,
-        loadOp      = .CLEAR,      // clear the depth data
-        storeOp     = .DONT_CARE,  // don't care after rendering
-        clearValue  = {depthStencil = {depth = 1.0, stencil = 0}},
-    }
-    renderingInfo : vk.RenderingInfo = {
-        sType = .RENDERING_INFO,
-        renderArea = {
-            offset = {x = 0, y = 0},
-            extent = {width = g.swapchain_width, height = g.swapchain_height},
-        },
-        layerCount           = 1,
-        colorAttachmentCount = 1,
-        pColorAttachments    = &colorAttachInfo,
-        pDepthAttachment     = &depthAttachInfo,
-    }
+	drawIndex: u32 = 0
+	for len(g.node_render_stack) > 0 {
+		layer := pop(&g.node_render_stack)
+		node := layer.node_ptr
+		matWorld := layer.mat * getTransform(node)
 
-    // begin dynamic rendering
-    vk.CmdBeginRendering(res.command_buffer, &renderingInfo)
+		// draw the associated mesh
+		if node.mesh_id != 0 {
+			mesh := &g.meshes[node.mesh_id - 1]
+			for &subMesh in mesh.sub_meshes {
+				// indirect draw command
+				res.indirect_draw_ptr[drawIndex] = vk.DrawIndexedIndirectCommand{
+					indexCount    = u32(subMesh.index_count),
+					instanceCount = 1,
+					firstIndex    = u32(subMesh.index_start),
+					vertexOffset  = i32(subMesh.vertex_start),
+					firstInstance = drawIndex,
+				}
+				// per render-item data
+				res.render_item_ptr[drawIndex] = RenderItem{
+					wvp            = viewProjMatrix * matWorld,
+					world_matrix    = matWorld,
+					material_index  = subMesh.material_id - 1,
+				}
+				drawIndex += 1
+			}
+		}
 
-    {
-        // set the viewport and scissor state
-        viewport : vk.Viewport = {
-            x      = 0,
-            y      = 0,
-            width  = f32(g.swapchain_width),
-            height = f32(g.swapchain_height),
-        }
-        vk.CmdSetViewport(res.command_buffer, 0, 1, &viewport)
+		// child nodes for processing
+		childNodeId := node.first_child_id
+		for childNodeId != 0 {
+			child := getNode(&g.node_world, childNodeId)
+			append(&g.node_render_stack, RenderStackLayer{node_ptr = child, mat = matWorld})
+			childNodeId = child.next_sibling_id
+		}
+	}
 
-        scissor : vk.Rect2D = {
-            offset = {x = 0, y = 0},
-            extent = {width = g.swapchain_width, height = g.swapchain_height},
-        }
-        vk.CmdSetScissor(res.command_buffer, 0, 1, &scissor)
+	// begin recording commands
+	cmdBeginInfo := vk.CommandBufferBeginInfo{
+		sType = .COMMAND_BUFFER_BEGIN_INFO,
+		flags = {.ONE_TIME_SUBMIT},
+	}
+	vk.BeginCommandBuffer(res.command_buffer, &cmdBeginInfo)
 
-        // draw our triangle
-        vk.CmdBindPipeline(res.command_buffer, .GRAPHICS, g.pipeline)
-        vk.CmdDraw(res.command_buffer, 3, 1, 0, 0)
-    }
-    // end dynamic rendering
-    vk.CmdEndRendering(res.command_buffer)
+	// transition the color and depth images
+	layoutBarriers: [2]vk.ImageMemoryBarrier2 = {
+		{
+			sType         = .IMAGE_MEMORY_BARRIER_2,
+			srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
+			srcAccessMask = {},
+			dstStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
+			dstAccessMask = {.COLOR_ATTACHMENT_WRITE},
+			oldLayout     = .UNDEFINED,
+			newLayout     = .COLOR_ATTACHMENT_OPTIMAL,
+			image         = g.swapchain_images[imageIndex],
+			subresourceRange = {
+				aspectMask     = {.COLOR},
+				baseMipLevel   = 0,
+				levelCount     = 1,
+				baseArrayLayer = 0,
+				layerCount     = 1,
+			},
+		},
+		{
+			sType         = .IMAGE_MEMORY_BARRIER_2,
+			srcStageMask  = {.EARLY_FRAGMENT_TESTS},
+			srcAccessMask = {},
+			dstStageMask  = {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS},
+			dstAccessMask = {.DEPTH_STENCIL_ATTACHMENT_WRITE},
+			oldLayout     = .UNDEFINED,
+			newLayout     = .DEPTH_ATTACHMENT_OPTIMAL,
+			image         = g.depth_image,
+			subresourceRange = {
+				aspectMask     = {.DEPTH},
+				baseMipLevel   = 0,
+				levelCount     = 1,
+				baseArrayLayer = 0,
+				layerCount     = 1,
+			},
+		},
+	}
+	depInfo: vk.DependencyInfo = {
+		sType                   = .DEPENDENCY_INFO,
+		imageMemoryBarrierCount = u32(len(layoutBarriers)),
+		pImageMemoryBarriers    = raw_data(layoutBarriers[:]),
+	}
+	vk.CmdPipelineBarrier2(res.command_buffer, &depInfo)
 
-    // transition the image from color attachment to presentation so we can show it
-    presentLayoutBarrier : vk.ImageMemoryBarrier2 = {
-        sType         = .IMAGE_MEMORY_BARRIER_2,
-        srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
-        srcAccessMask = {.COLOR_ATTACHMENT_WRITE},
-        dstStageMask  = {}, // nothing is waiting, but the cache is flushed and layout is transitioned
-        dstAccessMask = {},
-        oldLayout     = .COLOR_ATTACHMENT_OPTIMAL,
-        newLayout     = .PRESENT_SRC_KHR,
-        image         = g.swapchain_images[imageIndex],
-        subresourceRange = {
-            aspectMask     = {.COLOR},
-            baseMipLevel   = 0,
-            levelCount     = 1,
-            baseArrayLayer = 0,
-            layerCount     = 1,
-        },
-    }
-    presentDepInfo : vk.DependencyInfo = {
-        sType                   = .DEPENDENCY_INFO,
-        imageMemoryBarrierCount = 1,
-        pImageMemoryBarriers    = &presentLayoutBarrier,
-    }
-    vk.CmdPipelineBarrier2(res.command_buffer, &presentDepInfo)
+	// setup the attachments (color and depth) and begin rendering (dynamic)
+	colorAttachInfo: vk.RenderingAttachmentInfo = {
+		sType       = .RENDERING_ATTACHMENT_INFO,
+		imageView   = g.swapchain_views[imageIndex],
+		imageLayout = .COLOR_ATTACHMENT_OPTIMAL,
+		loadOp      = .CLEAR,
+		storeOp     = .STORE,
+		clearValue  = {color = {float32 = {0.3, 0.3, 1, 1}}},
+	}
+	depthAttachInfo: vk.RenderingAttachmentInfo = {
+		sType       = .RENDERING_ATTACHMENT_INFO,
+		imageView   = g.depth_image_view,
+		imageLayout = .DEPTH_ATTACHMENT_OPTIMAL,
+		loadOp      = .CLEAR,
+		storeOp     = .DONT_CARE,
+		clearValue  = {depthStencil = {depth = 1.0, stencil = 0}},
+	}
+	renderingInfo: vk.RenderingInfo = {
+		sType = .RENDERING_INFO,
+		renderArea = {
+			offset = {x = 0, y = 0},
+			extent = {width = g.swapchain_width, height = g.swapchain_height},
+		},
+		layerCount           = 1,
+		colorAttachmentCount = 1,
+		pColorAttachments    = &colorAttachInfo,
+		pDepthAttachment     = &depthAttachInfo,
+	}
 
-    vk.EndCommandBuffer(res.command_buffer)
+	// setup frame data
+	vk.CmdBindDescriptorSets(res.command_buffer, .GRAPHICS, g.pipeline_layout, 0, 1, &g.global_desc_set, 0, nil)
 
-    // ensure swapchain image is actually available to start color output
-    imageAcquireWaitInfo : vk.SemaphoreSubmitInfo = {
-        sType     = .SEMAPHORE_SUBMIT_INFO,
-        semaphore = imageAcquireSemaphore,
-        stageMask = {.COLOR_ATTACHMENT_OUTPUT}, // wait before drawing to image
-    }
-    // signal that the image can be presented
-    semaphoreSignals : [2]vk.SemaphoreSubmitInfo = {
-        { // render work completion signal
-            sType     = .SEMAPHORE_SUBMIT_INFO,
-            semaphore = g.render_complete_semaphores[imageIndex],
-            stageMask = {.ALL_GRAPHICS},
-        },
-        { // entire frame is completed (timeline)
-            sType     = .SEMAPHORE_SUBMIT_INFO,
-            semaphore = g.timeline_semaphore,
-            value     = signalValue,
-            stageMask = {.ALL_COMMANDS},
-        },
-    }
-    cmdSubmitInfo : vk.CommandBufferSubmitInfo = {
-        sType         = .COMMAND_BUFFER_SUBMIT_INFO,
-        commandBuffer = res.command_buffer,
-    }
-    submitInfo : vk.SubmitInfo2 = {
-        sType                     = .SUBMIT_INFO_2,
-        waitSemaphoreInfoCount    = 1,
-        pWaitSemaphoreInfos       = &imageAcquireWaitInfo, // ensure the image is ready
-        commandBufferInfoCount    = 1,
-        pCommandBufferInfos       = &cmdSubmitInfo,
-        signalSemaphoreInfoCount  = u32(len(semaphoreSignals)),
-        pSignalSemaphoreInfos     = raw_data(semaphoreSignals[:]),
-    }
-    vk.QueueSubmit2(g.graphics_queue, 1, &submitInfo, 0)
+	frameConsts: FrameConstants
+	vertBuffer := &g.buffers[g.vertex_buffer_id - 1]
+	materialBuffer := &g.buffers[g.mat_buffer_id - 1]
+	frameConsts.vertex_buffer_address = cast(u64)vertBuffer.device_address
+	frameConsts.material_buffer_address = cast(u64)materialBuffer.device_address
+	frameConsts.render_items_address = cast(u64)res.render_item_buffer.device_address
+	vk.CmdPushConstants(res.command_buffer, g.pipeline_layout, {.VERTEX, .FRAGMENT}, 0, size_of(FrameConstants), &frameConsts)
 
-    // present the image
-    presentInfo : vk.PresentInfoKHR = {
-        sType              = .PRESENT_INFO_KHR,
-        waitSemaphoreCount = 1,
-        pWaitSemaphores    = &g.render_complete_semaphores[imageIndex], // render work completed semaphore
-        swapchainCount     = 1,
-        pSwapchains        = &g.swapchain,
-        pImageIndices      = &imageIndex,
-        pResults           = nil,
-    }
+	idxBuffer := &g.buffers[g.index_buffer_id - 1]
+	vk.CmdBindIndexBuffer(res.command_buffer, idxBuffer.vk_buffer, 0, .UINT32)
 
-    vk.QueuePresentKHR(g.graphics_queue, &presentInfo)
+	// begin dynamic rendering
+	vk.CmdBeginRendering(res.command_buffer, &renderingInfo)
+	{
+		// set the viewport and scissor state -- negative height flips Y to match glTF/GLM's convention
+		viewport: vk.Viewport = {
+			x        = 0,
+			y        = f32(g.swapchain_height),
+			width    = f32(g.swapchain_width),
+			height   = -f32(g.swapchain_height),
+			minDepth = 0,
+			maxDepth = 1,
+		}
+		vk.CmdSetViewport(res.command_buffer, 0, 1, &viewport)
+
+		scissor: vk.Rect2D = {
+			offset = {x = 0, y = 0},
+			extent = {width = g.swapchain_width, height = g.swapchain_height},
+		}
+		vk.CmdSetScissor(res.command_buffer, 0, 1, &scissor)
+
+		vk.CmdBindPipeline(res.command_buffer, .GRAPHICS, g.pipeline)
+		vk.CmdDrawIndexedIndirect(res.command_buffer, res.indirect_draw_buffer.vk_buffer, 0, drawIndex, size_of(vk.DrawIndexedIndirectCommand))
+	}
+	// end dynamic rendering
+	vk.CmdEndRendering(res.command_buffer)
+
+	// transition the image from color attachment to presentation so we can show it
+	presentLayoutBarrier: vk.ImageMemoryBarrier2 = {
+		sType         = .IMAGE_MEMORY_BARRIER_2,
+		srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
+		srcAccessMask = {.COLOR_ATTACHMENT_WRITE},
+		dstStageMask  = {},
+		dstAccessMask = {},
+		oldLayout     = .COLOR_ATTACHMENT_OPTIMAL,
+		newLayout     = .PRESENT_SRC_KHR,
+		image         = g.swapchain_images[imageIndex],
+		subresourceRange = {
+			aspectMask     = {.COLOR},
+			baseMipLevel   = 0,
+			levelCount     = 1,
+			baseArrayLayer = 0,
+			layerCount     = 1,
+		},
+	}
+	presentDepInfo: vk.DependencyInfo = {
+		sType                   = .DEPENDENCY_INFO,
+		imageMemoryBarrierCount = 1,
+		pImageMemoryBarriers    = &presentLayoutBarrier,
+	}
+	vk.CmdPipelineBarrier2(res.command_buffer, &presentDepInfo)
+
+	vk.EndCommandBuffer(res.command_buffer)
+
+	// ensure swapchain image is actually available to start color output
+	imageAcquireWaitInfo: vk.SemaphoreSubmitInfo = {
+		sType     = .SEMAPHORE_SUBMIT_INFO,
+		semaphore = imageAcquireSemaphore,
+		stageMask = {.COLOR_ATTACHMENT_OUTPUT},
+	}
+	semaphoreSignals: [2]vk.SemaphoreSubmitInfo = {
+		{
+			sType     = .SEMAPHORE_SUBMIT_INFO,
+			semaphore = g.render_complete_semaphores[imageIndex],
+			stageMask = {.ALL_GRAPHICS},
+		},
+		{
+			sType     = .SEMAPHORE_SUBMIT_INFO,
+			semaphore = g.timeline_semaphore,
+			value     = signalValue,
+			stageMask = {.ALL_COMMANDS},
+		},
+	}
+	cmdSubmitInfo: vk.CommandBufferSubmitInfo = {
+		sType         = .COMMAND_BUFFER_SUBMIT_INFO,
+		commandBuffer = res.command_buffer,
+	}
+	submitInfo: vk.SubmitInfo2 = {
+		sType                    = .SUBMIT_INFO_2,
+		waitSemaphoreInfoCount   = 1,
+		pWaitSemaphoreInfos      = &imageAcquireWaitInfo,
+		commandBufferInfoCount   = 1,
+		pCommandBufferInfos      = &cmdSubmitInfo,
+		signalSemaphoreInfoCount = u32(len(semaphoreSignals)),
+		pSignalSemaphoreInfos    = raw_data(semaphoreSignals[:]),
+	}
+	vk.QueueSubmit2(g.graphics_queue, 1, &submitInfo, 0)
+
+	// present the image
+	presentInfo: vk.PresentInfoKHR = {
+		sType              = .PRESENT_INFO_KHR,
+		waitSemaphoreCount = 1,
+		pWaitSemaphores    = &g.render_complete_semaphores[imageIndex],
+		swapchainCount     = 1,
+		pSwapchains        = &g.swapchain,
+		pImageIndices      = &imageIndex,
+		pResults           = nil,
+	}
+
+	vk.QueuePresentKHR(g.graphics_queue, &presentInfo)
 }

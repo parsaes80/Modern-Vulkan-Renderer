@@ -11,19 +11,19 @@ Vec4 :: [4]f32
 MAX_FRAMES_IN_FLIGHT :: 2
 MAX_TEXTURES :: 1024
 
-Vertex::struct{
+Vertex::struct #packed{
     pos:   Vec3,
     color: Vec3,
     normal:Vec3,
     uv:    Vec2
 }
 
-Mesh:: struct{
+Mesh:: struct #packed{
     name:      string, 
     sub_meshes:[dynamic]SubMesh
 }
 
-SubMesh::struct {
+SubMesh::struct #packed{
     vertex_start:u64,
     vertex_count:u64,
     index_start :u64,
@@ -31,7 +31,7 @@ SubMesh::struct {
     material_id :u32
 }
 
-Image::struct 
+Image::struct #packed
 {
     width:    int,
     height:   int,
@@ -39,7 +39,7 @@ Image::struct
     data:     ^byte
 }
 
-FrameConstants :: struct
+FrameConstants :: struct #packed
 {
     vertex_buffer_address  :u64,
     material_buffer_address:u64,
@@ -58,7 +58,7 @@ GPUBuffer :: struct {
     allocation:     vma.Allocation,
 }
 
-RenderItem :: struct {
+RenderItem :: struct #packed{
     wvp:            matrix[4,4]f32,
     world_matrix:   matrix[4,4]f32,
     material_index: u32,
@@ -75,20 +75,34 @@ FrameResources :: struct {
     render_item_ptr:          [^]RenderItem,
 }
 
-Material :: struct {
+Material :: struct #packed{
     base_color    :Vec4,
     texture_index :u32,
 }
 
-Texture :: struct {
+Texture :: struct #packed{
     image_id:   u32,
     sampler_id: u32,
 }
 
-RenderStack::struct{
+RenderStackLayer::struct #packed{
     node_ptr:^Node,
     mat:     matrix[4,4]f32
 } 
+
+Camera :: struct {
+	pos:   Vec3,
+	front: Vec3,
+	up:    Vec3,
+	yaw:   f32,
+	pitch: f32,
+	fov:   f32,
+}
+
+Mouse :: struct {
+	sensitivity: f32,
+	first_move:  bool,
+}
 
 VKGlobals :: struct {
     ctx:                runtime.Context,
@@ -142,7 +156,6 @@ VKGlobals :: struct {
     vertex_buffer_id:     u32,
     index_buffer_id:      u32,
     mat_buffer_id:        u32,
-
     
     vertecies: [dynamic]Vertex,
     indicies:  [dynamic]u32,
@@ -157,14 +170,20 @@ VKGlobals :: struct {
     global_desc_set:  vk.DescriptorSet,
     desc_pool:        vk.DescriptorPool,
 
-    cam_distance: f32,
-    cam_yaw:      f32,
-    cam_pitch:    f32,
+    //cam_distance: f32,
+    //cam_yaw:      f32,
+    //cam_pitch:    f32,
+    
+    camera:Camera,
+    mouse:Mouse,
 
     node_world:       NodeWorld,
     root_node_id:     u32,
     last_root_node_id:u32,
-    node_render_stack:[dynamic]RenderStack
+    node_render_stack:[dynamic]RenderStackLayer,
+
+    dt:u64,
+    t0 :u64
 }
 
 g :VKGlobals
