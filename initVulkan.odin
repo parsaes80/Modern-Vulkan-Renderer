@@ -38,11 +38,11 @@ shutdown :: proc() {
     // wait in case resources are in use
     vk.DeviceWaitIdle(g.device)
     
-    vk.DestroyDescriptorSetLayout(g.device,g.global_ds_layout,nil)
-    vk.DestroyDescriptorPool(g.device,g.desc_pool,nil)
+    vk.DestroyDescriptorSetLayout(g.device,g.globalDsLayout,nil)
+    vk.DestroyDescriptorPool(g.device,g.descPool,nil)
 
     for &img in g.images{
-        vk.DestroyImageView(g.device,img.image_view,nil)
+        vk.DestroyImageView(g.device,img.imageView,nil)
         vk.DestroyImage(g.device,img.image,nil)
         vma.FreeMemory(g.allocator,img.allocation)
     }
@@ -50,32 +50,32 @@ shutdown :: proc() {
         vk.DestroySampler(g.device,sampler,nil)
     }
     for &buff in g.buffers{
-        vk.DestroyBuffer(g.device,buff.vk_buffer,nil)
+        vk.DestroyBuffer(g.device,buff.vkBuffer,nil)
         vma.FreeMemory(g.allocator,buff.allocation)
     }
     
     // // frame / sync object cleanup
-    for res in g.frame_resources{
-        vk.DestroySemaphore(g.device,res.image_acquired_semaphore,nil)
-        vk.DestroyCommandPool(g.device,res.command_pool,nil)
+    for res in g.frameResources{
+        vk.DestroySemaphore(g.device,res.imageAcquiredSemaphore,nil)
+        vk.DestroyCommandPool(g.device,res.commandPool,nil)
     }
     
-    vk.DestroySemaphore(g.device, g.timeline_semaphore, nil)
+    vk.DestroySemaphore(g.device, g.timelineSemaphore, nil)
     
     // pipeline cleanup
-    if g.pipeline_layout != 0 {
-        vk.DestroyPipelineLayout(g.device, g.pipeline_layout, nil)
+    if g.pipelineLayout != 0 {
+        vk.DestroyPipelineLayout(g.device, g.pipelineLayout, nil)
     }
     if g.pipeline != 0 {
         vk.DestroyPipeline(g.device, g.pipeline, nil)
     }
 
     // cleanup shaders
-    if g.vert_shader_module != 0 {
-        vk.DestroyShaderModule(g.device, g.vert_shader_module, nil)
+    if g.vertShaderModule != 0 {
+        vk.DestroyShaderModule(g.device, g.vertShaderModule, nil)
     }
-    if g.frag_shader_module != 0 {
-        vk.DestroyShaderModule(g.device, g.frag_shader_module, nil)
+    if g.fragShaderModule != 0 {
+        vk.DestroyShaderModule(g.device, g.fragShaderModule, nil)
     }
 
     // cleanup swapchain
@@ -111,22 +111,24 @@ shutdown :: proc() {
     delete(g.meshes)
     delete(g.vertecies)
     delete(g.indicies)
-    delete(g.swapchain_images)
+    delete(g.swapchainImages)
+    delete(g.nodeWorld.nodes)
+    delete(g.nodeRenderStack)
 }
 
 destroySwapchain :: proc() {
-    for view in g.swapchain_views {
+    for view in g.swapchainViews {
         vk.DestroyImageView(g.device, view, nil)
     }
-    delete(g.swapchain_views)
-    g.swapchain_views = nil
+    delete(g.swapchainViews)
+    g.swapchainViews = nil
 
     // destroy render-complete semaphores
-    for semaphore in g.render_complete_semaphores {
+    for semaphore in g.renderCompleteSemaphores {
         vk.DestroySemaphore(g.device, semaphore, nil)
     }
-    delete(g.render_complete_semaphores)
-    g.render_complete_semaphores = nil
+    delete(g.renderCompleteSemaphores)
+    g.renderCompleteSemaphores = nil
 
     if g.swapchain != 0 {
         vk.DestroySwapchainKHR(g.device, g.swapchain, nil)
@@ -134,10 +136,10 @@ destroySwapchain :: proc() {
     }
 
     // destroy the depth buffer along with the swapchain
-    if g.depth_image_view != 0 {
-        vk.DestroyImageView(g.device, g.depth_image_view, nil)
-        vma.DestroyImage(g.allocator, g.depth_image, g.depth_image_allocation)
-        g.depth_image_view = 0
+    if g.depthImageView != 0 {
+        vk.DestroyImageView(g.device, g.depthImageView, nil)
+        vma.DestroyImage(g.allocator, g.depthImage, g.depthImageAllocation)
+        g.depthImageView = 0
     }
 }
 
@@ -215,35 +217,35 @@ findPhysicalDevice :: proc() -> bool {
     vk.EnumeratePhysicalDevices(g.instance, &physDeviceCount, raw_data(physicalDevices))
 
     // default to first GPU
-    g.physical_device = physicalDevices[0]
+    g.physicalDevice = physicalDevices[0]
 
     // look through list and see if a dGPU exists
     for pDev in physicalDevices {
         props: vk.PhysicalDeviceProperties
         vk.GetPhysicalDeviceProperties(pDev, &props)
         if props.deviceType == .DISCRETE_GPU {
-            g.physical_device = pDev
+            g.physicalDevice = pDev
             break
         }
     }
 
     // ensure the desired swapchain format is supported
-    format_count: u32 = 0
-    vk.GetPhysicalDeviceSurfaceFormatsKHR(g.physical_device, g.surface, &format_count, nil)
+    formatCount: u32 = 0
+    vk.GetPhysicalDeviceSurfaceFormatsKHR(g.physicalDevice, g.surface, &formatCount, nil)
 
-    surface_formats := make([]vk.SurfaceFormatKHR, format_count)
-    defer delete(surface_formats)
-    vk.GetPhysicalDeviceSurfaceFormatsKHR(g.physical_device, g.surface, &format_count, raw_data(surface_formats))
+    surfaceFormats := make([]vk.SurfaceFormatKHR, formatCount)
+    defer delete(surfaceFormats)
+    vk.GetPhysicalDeviceSurfaceFormatsKHR(g.physicalDevice, g.surface, &formatCount, raw_data(surfaceFormats))
 
-    format_supported := false
-    for surf_format in surface_formats {
-        if surf_format.format == g.swapchain_format.format {
-            format_supported = true
+    formatSupported := false
+    for surf_format in surfaceFormats {
+        if surf_format.format == g.swapchainFormat.format {
+            formatSupported = true
             break
         }
     }
 
-    if !format_supported {
+    if !formatSupported {
         print("Requested swapchain format is not supported by the surface")
         return false
     }
@@ -253,21 +255,21 @@ findPhysicalDevice :: proc() -> bool {
 
 findGraphicsQueue::proc()->bool{
     queueFamCount :u32= 0 
-    vk.GetPhysicalDeviceQueueFamilyProperties2(g.physical_device,&queueFamCount,nil)
-    queue_fam_props := make([]vk.QueueFamilyProperties2, queueFamCount)
-    defer delete(queue_fam_props)
-    for &qf in queue_fam_props {qf.sType = .QUEUE_FAMILY_PROPERTIES_2}
-    vk.GetPhysicalDeviceQueueFamilyProperties2(g.physical_device, &queueFamCount, raw_data(queue_fam_props))
+    vk.GetPhysicalDeviceQueueFamilyProperties2(g.physicalDevice,&queueFamCount,nil)
+    queueFamProps := make([]vk.QueueFamilyProperties2, queueFamCount)
+    defer delete(queueFamProps)
+    for &qf in queueFamProps {qf.sType = .QUEUE_FAMILY_PROPERTIES_2}
+    vk.GetPhysicalDeviceQueueFamilyProperties2(g.physicalDevice, &queueFamCount, raw_data(queueFamProps))
 
-    for current_fam_idx in 0 ..< len(queue_fam_props) {
+    for currentFamIdx in 0 ..< len(queueFamProps) {
         // ensure it has presentation support
-        has_present_support: b32 = false
-        vk.GetPhysicalDeviceSurfaceSupportKHR(g.physical_device, u32(current_fam_idx), g.surface, &has_present_support)
+        hasPresentSupport: b32 = false
+        vk.GetPhysicalDeviceSurfaceSupportKHR(g.physicalDevice, u32(currentFamIdx), g.surface, &hasPresentSupport)
 
-        props := queue_fam_props[current_fam_idx]
+        props := queueFamProps[currentFamIdx]
         // ensure this is a GRAPHICS queue with presentation support
-        if .GRAPHICS in props.queueFamilyProperties.queueFlags && bool(has_present_support) {
-            g.graphics_queue_family_idx = u32(current_fam_idx)
+        if .GRAPHICS in props.queueFamilyProperties.queueFlags && bool(hasPresentSupport) {
+            g.graphicsQueueFamilyIdx = u32(currentFamIdx)
             return true
         }
     }
@@ -275,12 +277,12 @@ findGraphicsQueue::proc()->bool{
 }
 
 createDevice :: proc() -> bool {
-    queue_priority: f32 = 1.0
-    gfx_queue_info : vk.DeviceQueueCreateInfo = {
+    queuePriority: f32 = 1.0
+    gfxQueueInfo : vk.DeviceQueueCreateInfo = {
         sType            = .DEVICE_QUEUE_CREATE_INFO,
-        queueFamilyIndex = g.graphics_queue_family_idx,
+        queueFamilyIndex = g.graphicsQueueFamilyIdx,
         queueCount       = 1,
-        pQueuePriorities = &queue_priority,
+        pQueuePriorities = &queuePriority,
     }
 
     // query supported features
@@ -288,7 +290,7 @@ createDevice :: proc() -> bool {
     supported_features_13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, pNext = &supported_features_14}
     supported_features_12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, pNext = &supported_features_13}
     supported_features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &supported_features_12}
-    vk.GetPhysicalDeviceFeatures2(g.physical_device, &supported_features)
+    vk.GetPhysicalDeviceFeatures2(g.physicalDevice, &supported_features)
 
     if !supported_features_13.dynamicRendering || !supported_features_13.synchronization2 ||
     !supported_features_12.timelineSemaphore || !supported_features_12.bufferDeviceAddress ||
@@ -345,25 +347,25 @@ createDevice :: proc() -> bool {
         }
     }
 
-    device_extensions := [?]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
+    deviceExtensions := [?]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
 
-    dev_create_info : vk.DeviceCreateInfo = {
+    deviceCreateInfo : vk.DeviceCreateInfo = {
         sType                   = .DEVICE_CREATE_INFO,
         pNext                   = &features,
         queueCreateInfoCount    = 1,
-        pQueueCreateInfos       = &gfx_queue_info,
-        enabledExtensionCount   = u32(len(device_extensions)),
-        ppEnabledExtensionNames = raw_data(device_extensions[:]),
+        pQueueCreateInfos       = &gfxQueueInfo,
+        enabledExtensionCount   = u32(len(deviceExtensions)),
+        ppEnabledExtensionNames = raw_data(deviceExtensions[:]),
         pEnabledFeatures        = nil, // features struct chain is set in pNext
     }
 
-    if vk.CreateDevice(g.physical_device, &dev_create_info, nil, &g.device) != .SUCCESS {
+    if vk.CreateDevice(g.physicalDevice, &deviceCreateInfo, nil, &g.device) != .SUCCESS {
         return false
     }
 
     // grab the VkQueue object finally
-    vk.GetDeviceQueue(g.device, g.graphics_queue_family_idx, 0, &g.graphics_queue)
-    if g.graphics_queue == nil {
+    vk.GetDeviceQueue(g.device, g.graphicsQueueFamilyIdx, 0, &g.graphicsQueue)
+    if g.graphicsQueue == nil {
         print("Couldn't get the graphics queue")
         return false
     }
@@ -373,26 +375,26 @@ createDevice :: proc() -> bool {
 
 initializeVMA::proc()->bool{
     // Initializes a subset of Vulkan functions required by VMA
-    vma_vulkan_functions := vma.create_vulkan_functions()
+    vmaVulkanFunctions := vma.create_vulkan_functions()
 
-    vma_create_info: vma.AllocatorCreateInfo = {
+    vmaCreateInfo: vma.AllocatorCreateInfo = {
         flags            = {.BUFFER_DEVICE_ADDRESS},
         instance         = g.instance,
-        physicalDevice   = g.physical_device,
+        physicalDevice   = g.physicalDevice,
         device           = g.device,
-        pVulkanFunctions = &vma_vulkan_functions,
+        pVulkanFunctions = &vmaVulkanFunctions,
         vulkanApiVersion = vk.API_VERSION_1_4,
     }
 
-    return vma.CreateAllocator(vma_create_info, &g.allocator) == .SUCCESS
+    return vma.CreateAllocator(vmaCreateInfo, &g.allocator) == .SUCCESS
 }
 
 createSwapchain :: proc(width:u32,height:u32) -> bool {
-    g.swapchain_width = width
-    g.swapchain_height= height
+    g.swapchainWidth = width
+    g.swapchainHeight= height
 
     surfaceCaps: vk.SurfaceCapabilitiesKHR
-    if vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(g.physical_device, g.surface, &surfaceCaps) != .SUCCESS do return false
+    if vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(g.physicalDevice, g.surface, &surfaceCaps) != .SUCCESS do return false
     requestedImgCount := max(2, surfaceCaps.minImageCount)
     if surfaceCaps.maxImageCount > 0 do requestedImgCount = min(requestedImgCount, surfaceCaps.maxImageCount)
 
@@ -401,9 +403,9 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
         sType            = .SWAPCHAIN_CREATE_INFO_KHR,
         surface          = g.surface,
         minImageCount    = requestedImgCount,
-        imageFormat      = g.swapchain_format.format,
-        imageColorSpace  = g.swapchain_format.colorSpace,
-        imageExtent      = {g.swapchain_width, g.swapchain_height},
+        imageFormat      = g.swapchainFormat.format,
+        imageColorSpace  = g.swapchainFormat.colorSpace,
+        imageExtent      = {g.swapchainWidth, g.swapchainHeight},
         imageArrayLayers = 1,
         imageUsage       = {.COLOR_ATTACHMENT},
         preTransform     = surfaceCaps.currentTransform,
@@ -413,38 +415,38 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
 
     if vk.CreateSwapchainKHR(g.device, &swapchainCreateInfo, nil, &g.swapchain) != .SUCCESS do return false
 
-    fmt.printfln("created swapchain with %v images, width:%v height:%v", requestedImgCount,g.swapchain_width,g.swapchain_height)
+    fmt.printfln("created swapchain with %v images, width:%v height:%v", requestedImgCount,g.swapchainWidth,g.swapchainHeight)
 
     // grab the swapchain images
     imageCount: u32 = 0
     vk.GetSwapchainImagesKHR(g.device, g.swapchain, &imageCount, nil)
-    g.swapchain_images = make([]vk.Image, imageCount)
+    g.swapchainImages = make([]vk.Image, imageCount)
 
-    vk.GetSwapchainImagesKHR(g.device, g.swapchain, &imageCount, raw_data(g.swapchain_images))
-    g.swapchain_views = make([]vk.ImageView, imageCount)
+    vk.GetSwapchainImagesKHR(g.device, g.swapchain, &imageCount, raw_data(g.swapchainImages))
+    g.swapchainViews = make([]vk.ImageView, imageCount)
 
     // create the swapchain image views
-    for i in 0 ..< len(g.swapchain_images) {
+    for i in 0 ..< len(g.swapchainImages) {
         imgViewInfo : vk.ImageViewCreateInfo = {
             sType    = .IMAGE_VIEW_CREATE_INFO,
-            image    = g.swapchain_images[i],
+            image    = g.swapchainImages[i],
             viewType = .D2,
-            format   = g.swapchain_format.format,
+            format   = g.swapchainFormat.format,
             subresourceRange = {
                 aspectMask = {.COLOR},
                 levelCount = 1,
                 layerCount = 1,
             },
         }
-        if vk.CreateImageView(g.device, &imgViewInfo, nil, &g.swapchain_views[i]) != .SUCCESS {
+        if vk.CreateImageView(g.device, &imgViewInfo, nil, &g.swapchainViews[i]) != .SUCCESS {
             print("Error creating swapchain image view")
             return false
         }
     }
 
     // semaphores used to signal render completion
-    g.render_complete_semaphores = make([]vk.Semaphore, len(g.swapchain_images))
-    for &semaphore in g.render_complete_semaphores {
+    g.renderCompleteSemaphores = make([]vk.Semaphore, len(g.swapchainImages))
+    for &semaphore in g.renderCompleteSemaphores {
         semaphoreInfo := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO}
         if vk.CreateSemaphore(g.device, &semaphoreInfo, nil, &semaphore) != .SUCCESS {
             print("Error creating the render-complete semaphore")
@@ -457,8 +459,8 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
     {
         sType       = .IMAGE_CREATE_INFO,
         imageType   = .D2,
-        format      = g.depth_format,
-        extent      = {g.swapchain_width, g.swapchain_height, 1},
+        format      = g.depthFormat,
+        extent      = {g.swapchainWidth, g.swapchainHeight, 1},
         mipLevels   = 1,
         arrayLayers = 1,
         samples     = {._1},
@@ -470,23 +472,23 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
         flags = {.DEDICATED_MEMORY},
         usage = .AUTO,
     }
-    if vma.CreateImage(g.allocator, depthCreateInfo, allocInfo, &g.depth_image, &g.depth_image_allocation, nil) != .SUCCESS {
+    if vma.CreateImage(g.allocator, depthCreateInfo, allocInfo, &g.depthImage, &g.depthImageAllocation, nil) != .SUCCESS {
         print("Error allocating depth image")
         return false
     }
 
     depthImgViewInfo : vk.ImageViewCreateInfo = {
         sType    = .IMAGE_VIEW_CREATE_INFO,
-        image    = g.depth_image,
+        image    = g.depthImage,
         viewType = .D2,
-        format   = g.depth_format,
+        format   = g.depthFormat,
         subresourceRange = {
             aspectMask = {.DEPTH},
             levelCount = 1,
             layerCount = 1,
         },
     }
-    if vk.CreateImageView(g.device, &depthImgViewInfo, nil, &g.depth_image_view) != .SUCCESS {
+    if vk.CreateImageView(g.device, &depthImgViewInfo, nil, &g.depthImageView) != .SUCCESS {
         print("Error creating depth image view")
         return false
     }
@@ -494,14 +496,14 @@ createSwapchain :: proc(width:u32,height:u32) -> bool {
 }
 
 createShaderModule :: proc(filename: string, kind: shaderc.shaderKind) -> vk.ShaderModule {
-    shader_path := strings.concatenate({"shaders/", filename})
-    defer delete(shader_path)
+    shaderPath := strings.concatenate({"shaders/", filename})
+    defer delete(shaderPath)
 
-    src_bytes, read_ok := os.read_entire_file(shader_path,context.allocator)
+    srcBytes, readOk := os.read_entire_file(shaderPath,context.allocator)
 
-    defer delete(src_bytes)
+    defer delete(srcBytes)
 
-    print("Compiling shader:", shader_path)
+    print("Compiling shader:", shaderPath)
 
     compiler := shaderc.compiler_initialize()
     defer shaderc.compiler_release(compiler)
@@ -522,8 +524,8 @@ createShaderModule :: proc(filename: string, kind: shaderc.shaderKind) -> vk.Sha
 
     result := shaderc.compile_into_spv(
         compiler,
-        cstring(raw_data(src_bytes)),
-        len(src_bytes),
+        cstring(raw_data(srcBytes)),
+        len(srcBytes),
         kind,
         filename_cstr,
         "main",
@@ -537,29 +539,29 @@ createShaderModule :: proc(filename: string, kind: shaderc.shaderKind) -> vk.Sha
         return 0
     }
 
-    spv_size := shaderc.result_get_length(result)
-    spv_bytes := shaderc.result_get_bytes(result)
+    spvSize := shaderc.result_get_length(result)
+    spvBytes := shaderc.result_get_bytes(result)
 
-    module_create_info : vk.ShaderModuleCreateInfo = {
+    moduleCreateInfo : vk.ShaderModuleCreateInfo = {
         sType    = .SHADER_MODULE_CREATE_INFO,
-        codeSize = int(spv_size),
-        pCode    = cast(^u32)spv_bytes,
+        codeSize = int(spvSize),
+        pCode    = cast(^u32)spvBytes,
     }
 
-    shader_module: vk.ShaderModule
-    if vk.CreateShaderModule(g.device, &module_create_info, nil, &shader_module) != .SUCCESS {
+    shaderModule: vk.ShaderModule
+    if vk.CreateShaderModule(g.device, &moduleCreateInfo, nil, &shaderModule) != .SUCCESS {
         print("Error creating shader module")
         return 0
     }
 
-    return shader_module
+    return shaderModule
 }
 
 createShaders :: proc() -> bool {
-    g.vert_shader_module = createShaderModule("shader.vert", .VertexShader)
-    if g.vert_shader_module == 0 {return false}
-    g.frag_shader_module = createShaderModule("shader.frag", .FragmentShader)
-    if g.frag_shader_module == 0 {return false}
+    g.vertShaderModule = createShaderModule("shader.vert", .VertexShader)
+    if g.vertShaderModule == 0 {return false}
+    g.fragShaderModule = createShaderModule("shader.frag", .FragmentShader)
+    if g.fragShaderModule == 0 {return false}
     return true
 }
 
@@ -575,7 +577,7 @@ createDescriptorSets :: proc() -> bool {
 		poolSizeCount = len(poolSizes),
 		pPoolSizes    = &poolSizes[0],
 	}
-	if vk.CreateDescriptorPool(g.device, &poolInfo, nil, &g.desc_pool) != .SUCCESS {
+	if vk.CreateDescriptorPool(g.device, &poolInfo, nil, &g.descPool) != .SUCCESS {
 		print("Unable to create descriptor pool")
 		return false
 	}
@@ -587,7 +589,7 @@ createDescriptorSets :: proc() -> bool {
 		descriptorCount = MAX_TEXTURES,
 		stageFlags      = {.FRAGMENT},
 	}}
-	bindingFlags: [1]vk.DescriptorBindingFlags = {{.PARTIALLY_BOUND, .UPDATE_AFTER_BIND}}
+	bindingFlags:= [?]vk.DescriptorBindingFlags{{.PARTIALLY_BOUND, .UPDATE_AFTER_BIND}}
 	flagsInfo: vk.DescriptorSetLayoutBindingFlagsCreateInfo = {
 		sType         = .DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
 		bindingCount  = len(bindingFlags),
@@ -600,7 +602,7 @@ createDescriptorSets :: proc() -> bool {
 		bindingCount = len(bindings),
 		pBindings    = &bindings[0],
 	}
-	if vk.CreateDescriptorSetLayout(g.device, &layoutInfo, nil, &g.global_ds_layout) != .SUCCESS {
+	if vk.CreateDescriptorSetLayout(g.device, &layoutInfo, nil, &g.globalDsLayout) != .SUCCESS {
 		print("Unable to create descriptor set layout")
 		return false
 	}
@@ -608,11 +610,11 @@ createDescriptorSets :: proc() -> bool {
 	// create the actual descriptor set
 	descSetAllocInfo: vk.DescriptorSetAllocateInfo = {
 		sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
-		descriptorPool     = g.desc_pool,
+		descriptorPool     = g.descPool,
 		descriptorSetCount = 1,
-		pSetLayouts        = &g.global_ds_layout,
+		pSetLayouts        = &g.globalDsLayout,
 	}
-	if vk.AllocateDescriptorSets(g.device, &descSetAllocInfo, &g.global_desc_set) != .SUCCESS {
+	if vk.AllocateDescriptorSets(g.device, &descSetAllocInfo, &g.globalDescSet) != .SUCCESS {
 		print("Unable to allocate descriptor set")
 		return false
 	}
@@ -625,16 +627,16 @@ createGraphicsPipeline :: proc() -> bool {
         offset = 0,
         size = size_of(FrameConstants) 
     }
-    dsLayout : [1]vk.DescriptorSetLayout = {g.global_ds_layout}
+    dsLayout : [1]vk.DescriptorSetLayout = {g.globalDsLayout}
 
-    pipeline_layout_info := vk.PipelineLayoutCreateInfo{
+    pipelineLayoutInfo := vk.PipelineLayoutCreateInfo{
         sType                  = .PIPELINE_LAYOUT_CREATE_INFO,
         setLayoutCount         = cast(u32)len(dsLayout),
         pSetLayouts            = &dsLayout[0],
         pushConstantRangeCount = 1,
         pPushConstantRanges = &pushConstantsRange,
     }
-    if vk.CreatePipelineLayout(g.device, &pipeline_layout_info, nil, &g.pipeline_layout) != .SUCCESS {
+    if vk.CreatePipelineLayout(g.device, &pipelineLayoutInfo, nil, &g.pipelineLayout) != .SUCCESS {
         print("unable to create pipeline layout")
         return false
     }
@@ -643,13 +645,13 @@ createGraphicsPipeline :: proc() -> bool {
         {
             sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
             stage  = {.VERTEX},
-            module = g.vert_shader_module,
+            module = g.vertShaderModule,
             pName  = entryPoint,
         },
         {
             sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
             stage  = {.FRAGMENT},
-            module = g.frag_shader_module,
+            module = g.fragShaderModule,
             pName  = entryPoint,
         },
     }
@@ -710,12 +712,12 @@ createGraphicsPipeline :: proc() -> bool {
     }
 
     // structure required for dynamic rendering
-    colorAttachmentFormats: [1]vk.Format = {g.swapchain_format.format}
+    colorAttachmentFormats: [1]vk.Format = {g.swapchainFormat.format}
     renderInfo: vk.PipelineRenderingCreateInfo = {
         sType                   = .PIPELINE_RENDERING_CREATE_INFO,
         colorAttachmentCount    = 1,
         pColorAttachmentFormats = raw_data(colorAttachmentFormats[:]),
-        depthAttachmentFormat   = g.depth_format,
+        depthAttachmentFormat   = g.depthFormat,
     }
 
     // create the graphics pipeline
@@ -733,7 +735,7 @@ createGraphicsPipeline :: proc() -> bool {
         pDepthStencilState  = &depthStencilInfo,
         pColorBlendState    = &blendInfo,
         pDynamicState       = &dynamicStateInfo,
-        layout              = g.pipeline_layout,
+        layout              = g.pipelineLayout,
         renderPass          = 0,
     }
     if vk.CreateGraphicsPipelines(g.device, 0, 1, &pipelineInfo, nil, &g.pipeline) != .SUCCESS {
@@ -753,16 +755,16 @@ createSyncResources :: proc() -> bool {
         sType = .SEMAPHORE_CREATE_INFO,
         pNext = &semaphoreTypeInfo,
     }
-    if vk.CreateSemaphore(g.device, &semaphoreInfo, nil, &g.timeline_semaphore) != .SUCCESS {
+    if vk.CreateSemaphore(g.device, &semaphoreInfo, nil, &g.timelineSemaphore) != .SUCCESS {
         print("Unable to create the timeline semaphore")
         return false
     }
 
     // per-frame image-acquire semaphores
-    for &res in g.frame_resources {
+    for &res in g.frameResources {
         // create the binary semaphores
         frame_semaphore_info := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO}
-        if vk.CreateSemaphore(g.device, &frame_semaphore_info, nil, &res.image_acquired_semaphore) != .SUCCESS {
+        if vk.CreateSemaphore(g.device, &frame_semaphore_info, nil, &res.imageAcquiredSemaphore) != .SUCCESS {
             print("Error creating the per-frame image-acquire semaphore")
             return false
         }
@@ -775,21 +777,21 @@ createCommandBuffers :: proc() -> bool {
     poolInfo: vk.CommandPoolCreateInfo = {
         sType = .COMMAND_POOL_CREATE_INFO,
         flags = {.TRANSIENT},
-        queueFamilyIndex = g.graphics_queue_family_idx,
+        queueFamilyIndex = g.graphicsQueueFamilyIdx,
     }
 
-    if vk.CreateCommandPool(g.device,&poolInfo,nil,&g.command_pool) != .SUCCESS {
+    if vk.CreateCommandPool(g.device,&poolInfo,nil,&g.commandPool) != .SUCCESS {
         print("Unable to create command pool")
         return false
     }
      
-    for &res in g.frame_resources {
+    for &res in g.frameResources {
         // we'll give each frame its own pool, faster cmd buffer resets this way
         poolInfo : vk.CommandPoolCreateInfo = {
             sType            = .COMMAND_POOL_CREATE_INFO,
-            queueFamilyIndex = g.graphics_queue_family_idx,
+            queueFamilyIndex = g.graphicsQueueFamilyIdx,
         }
-        if vk.CreateCommandPool(g.device, &poolInfo, nil, &res.command_pool) != .SUCCESS {
+        if vk.CreateCommandPool(g.device, &poolInfo, nil, &res.commandPool) != .SUCCESS {
             print("Unable to create command buffer pool")
             return false
         }
@@ -797,11 +799,11 @@ createCommandBuffers :: proc() -> bool {
         // create the command buffer for this frame
         cmdAllocInfo : vk.CommandBufferAllocateInfo = {
             sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
-            commandPool        = res.command_pool,
+            commandPool        = res.commandPool,
             level              = .PRIMARY,
             commandBufferCount = 1,
         }
-        if vk.AllocateCommandBuffers(g.device, &cmdAllocInfo, &res.command_buffer) != .SUCCESS {
+        if vk.AllocateCommandBuffers(g.device, &cmdAllocInfo, &res.commandBuffer) != .SUCCESS {
             print("Unable to allocate command buffer")
             return false
         }
@@ -810,26 +812,26 @@ createCommandBuffers :: proc() -> bool {
 }
 
 createIndirectDrawBuffers :: proc() -> bool {
-	for &res in g.frame_resources {
+	for &res in g.frameResources {
 		// indirect drawing buffer
-		indirectBuffByteSize := g.node_world.max_nodes * size_of(vk.DrawIndexedIndirectCommand)
-		res.indirect_draw_buffer = createBuffer({.INDIRECT_BUFFER}, indirectBuffByteSize, true, .AUTO)
+		indirectBuffByteSize := g.nodeWorld.maxNodes * size_of(vk.DrawIndexedIndirectCommand)
+		res.indirectDrawBuffer = createBuffer({.INDIRECT_BUFFER}, indirectBuffByteSize, true, .AUTO)
 		indBuffPtr: rawptr
-		if vma.MapMemory(g.allocator, res.indirect_draw_buffer.allocation, &indBuffPtr) != .SUCCESS {
+		if vma.MapMemory(g.allocator, res.indirectDrawBuffer.allocation, &indBuffPtr) != .SUCCESS {
 			print("Unable to map indirect draw buffer")
 			return false
 		}
-		res.indirect_draw_ptr = cast([^]vk.DrawIndexedIndirectCommand)indBuffPtr
+		res.indirectDrawPtr = cast([^]vk.DrawIndexedIndirectCommand)indBuffPtr
 
 		// render item buffer (per-draw data)
-		renderItemByteSize := g.node_world.max_nodes * size_of(RenderItem)
-		res.render_item_buffer = createBuffer({.STORAGE_BUFFER, .SHADER_DEVICE_ADDRESS}, renderItemByteSize, true, .AUTO)
+		renderItemByteSize := g.nodeWorld.maxNodes * size_of(RenderItem)
+		res.renderItemBuffer = createBuffer({.STORAGE_BUFFER, .SHADER_DEVICE_ADDRESS}, renderItemByteSize, true, .AUTO)
 		riBuffPtr: rawptr
-		if vma.MapMemory(g.allocator, res.render_item_buffer.allocation, &riBuffPtr) != .SUCCESS {
+		if vma.MapMemory(g.allocator, res.renderItemBuffer.allocation, &riBuffPtr) != .SUCCESS {
 			print("Unable to map render item buffer")
 			return false
 		}
-		res.render_item_ptr = cast([^]RenderItem)riBuffPtr
+		res.renderItemPtr = cast([^]RenderItem)riBuffPtr
 	}
 	return true
 }

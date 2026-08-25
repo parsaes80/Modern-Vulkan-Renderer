@@ -18,20 +18,20 @@ Vertex::struct #packed{
     uv:    Vec2
 }
 
-Mesh:: struct #packed{
+Mesh:: struct {
     name:      string, 
-    sub_meshes:[dynamic]SubMesh
+    subMeshes: [dynamic]SubMesh
 }
 
-SubMesh::struct #packed{
-    vertex_start:u64,
-    vertex_count:u64,
-    index_start :u64,
-    index_count :u64,
-    material_id :u32
+SubMesh::struct{
+    vertexStart:u64,
+    vertexCount:u64,
+    indexStart :u64,
+    indexCount :u64,
+    materialId :u32
 }
 
-Image::struct #packed
+Image::struct 
 {
     width:    int,
     height:   int,
@@ -39,54 +39,54 @@ Image::struct #packed
     data:     ^byte
 }
 
-FrameConstants :: struct #packed
+FrameConstants :: struct 
 {
-    vertex_buffer_address  :u64,
-    material_buffer_address:u64,
-    render_items_address   :u64
+    vertexBufferAddress  :u64,
+    materialBufferAddress:u64,
+    renderItemsAddress   :u64
 }
 
 GPUImage :: struct {
     image:      vk.Image,
-    image_view: vk.ImageView,
+    imageView: vk.ImageView,
     allocation: vma.Allocation,
 }
 
 GPUBuffer :: struct {
-    vk_buffer:      vk.Buffer,
-    device_address: vk.DeviceAddress,
+    vkBuffer:      vk.Buffer,
+    deviceAddress: vk.DeviceAddress,
     allocation:     vma.Allocation,
 }
 
 RenderItem :: struct #packed{
     wvp:            matrix[4,4]f32,
-    world_matrix:   matrix[4,4]f32,
-    material_index: u32,
+    worldMatrix:   matrix[4,4]f32,
+    materialIndex: u32,
 }
 
 FrameResources :: struct {
-    command_pool:             vk.CommandPool,
-    command_buffer:           vk.CommandBuffer,
-    image_acquired_semaphore: vk.Semaphore,
-    desc_set:                 vk.DescriptorSet,
-    indirect_draw_buffer:     GPUBuffer,
-    render_item_buffer:       GPUBuffer,
-    indirect_draw_ptr:        [^]vk.DrawIndexedIndirectCommand,
-    render_item_ptr:          [^]RenderItem,
+    commandPool:             vk.CommandPool,
+    commandBuffer:           vk.CommandBuffer,
+    imageAcquiredSemaphore: vk.Semaphore,
+    descSet:                 vk.DescriptorSet,
+    indirectDrawBuffer:     GPUBuffer,
+    renderItemBuffer:       GPUBuffer,
+    indirectDrawPtr:        [^]vk.DrawIndexedIndirectCommand,
+    renderItemPtr:          [^]RenderItem,
 }
 
 Material :: struct #packed{
-    base_color    :Vec4,
-    texture_index :u32,
+    baseColor    :Vec4,
+    textureIndex :u32,
 }
 
-Texture :: struct #packed{
-    image_id:   u32,
-    sampler_id: u32,
+Texture :: struct {
+    imageId:   u32,
+    samplerId: u32,
 }
 
-RenderStackLayer::struct #packed{
-    node_ptr:^Node,
+RenderStackLayer::struct {
+    nodePtr:^Node,
     mat:     matrix[4,4]f32
 } 
 
@@ -109,53 +109,53 @@ VKGlobals :: struct {
 
     window:             ^sdl.Window,
 
-    running:            bool,
-    width:              u32,
-    height:             u32,
-    frame_index:        u64,
-    next_signal_value:  u64,
+    running:          bool,
+    width:            u32,
+    height:           u32,
+    frameIndex:       u64,
+    nextSignalValue:  u64,
 
-    instance:                   vk.Instance,
-    physical_device:            vk.PhysicalDevice,
-    device:                     vk.Device,
-    surface:                    vk.SurfaceKHR,
-    graphics_queue_family_idx:  u32,
-    graphics_queue:             vk.Queue,
-    allocator:                  vma.Allocator,
+    instance:                  vk.Instance,
+    physicalDevice:            vk.PhysicalDevice,
+    device:                    vk.Device,
+    surface:                   vk.SurfaceKHR,
+    graphicsQueueFamilyIdx:    u32,
+    graphicsQueue:             vk.Queue,
+    allocator:                 vma.Allocator,
 
-    swapchain:                  vk.SwapchainKHR,
-    swapchain_images:           []vk.Image,
-    swapchain_views:            []vk.ImageView,
-    swapchain_format:           vk.SurfaceFormatKHR,
-    swapchain_width:            u32,
-    swapchain_height:           u32,
-    require_swapchain_recreate: bool,
+    swapchain:                vk.SwapchainKHR,
+    swapchainImages:          []vk.Image,
+    swapchainViews:           []vk.ImageView,
+    swapchainFormat:          vk.SurfaceFormatKHR,
+    swapchainWidth:           u32,
+    swapchainHeight:          u32,
+    requireSwapchainRecreate: bool,
 
-    depth_format:               vk.Format,
-    depth_image:                vk.Image,
-    depth_image_allocation:     vma.Allocation,
-    depth_image_view:           vk.ImageView,
-    render_complete_semaphores: []vk.Semaphore,
+    depthFormat:              vk.Format,
+    depthImage:               vk.Image,
+    depthImageAllocation:     vma.Allocation,
+    depthImageView:           vk.ImageView,
+    renderCompleteSemaphores: []vk.Semaphore,
 
-    vert_shader_module: vk.ShaderModule,
-    frag_shader_module: vk.ShaderModule,
+    vertShaderModule: vk.ShaderModule,
+    fragShaderModule: vk.ShaderModule,
 
-    pipeline_layout:    vk.PipelineLayout,
-    pipeline:           vk.Pipeline,
+    pipelineLayout:   vk.PipelineLayout,
+    pipeline:         vk.Pipeline,
 
-    timeline_semaphore: vk.Semaphore,
-    frame_resources:    [MAX_FRAMES_IN_FLIGHT]FrameResources,
+    timelineSemaphore: vk.Semaphore,
+    frameResources:    [MAX_FRAMES_IN_FLIGHT]FrameResources,
 
-    command_pool: vk.CommandPool, 
+    commandPool: vk.CommandPool, 
 
-    meshes:      [dynamic]Mesh,
-    vert_offset: u64,
-    idx_offset:  u64,
+    meshes:     [dynamic]Mesh,
+    vertOffset: u64,
+    idxOffset:  u64,
 
-    white_pixel_image_id: u32,
-    vertex_buffer_id:     u32,
-    index_buffer_id:      u32,
-    mat_buffer_id:        u32,
+    whitePixelImageId: u32,
+    vertexBufferId:     u32,
+    indexBufferId:      u32,
+    matBufferId:        u32,
     
     vertecies: [dynamic]Vertex,
     indicies:  [dynamic]u32,
@@ -166,24 +166,20 @@ VKGlobals :: struct {
     buffers:   [dynamic]GPUBuffer,
     materials: [dynamic]Material,
 
-    global_ds_layout: vk.DescriptorSetLayout,
-    global_desc_set:  vk.DescriptorSet,
-    desc_pool:        vk.DescriptorPool,
-
-    //cam_distance: f32,
-    //cam_yaw:      f32,
-    //cam_pitch:    f32,
+    globalDsLayout: vk.DescriptorSetLayout,
+    globalDescSet:  vk.DescriptorSet,
+    descPool:       vk.DescriptorPool,
     
-    camera:Camera,
-    mouse:Mouse,
+    camera: Camera,
+    mouse:  Mouse,
 
-    node_world:       NodeWorld,
-    root_node_id:     u32,
-    last_root_node_id:u32,
-    node_render_stack:[dynamic]RenderStackLayer,
+    nodeWorld:       NodeWorld,
+    rootNodeId:      u32,
+    lastRootNodeId:  u32,
+    nodeRenderStack: [dynamic]RenderStackLayer,
 
-    dt:u64,
-    t0 :u64
+    dt: u64,
+    t0: u64
 }
 
 g :VKGlobals

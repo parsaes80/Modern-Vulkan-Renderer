@@ -7,10 +7,10 @@ Node :: struct {
     scale:          Vec3,
     rotation:       quaternion128,
     transform:      matrix[4,4]f32,
-    mesh_id:        u32,
-    parent_id:      u32,
-    next_sibling_id:u32,
-    first_child_id: u32,
+    meshId:        u32,
+    parentId:      u32,
+    nextSiblingId:u32,
+    firstChildId: u32,
     dirty:          bool,
 }
 
@@ -98,16 +98,16 @@ quaternion_from_matrix3 :: proc(m: matrix[3, 3]f32) -> quaternion256 {
 
 NodeWorld :: struct {
 	nodes:     [dynamic]Node,
-	max_nodes: int,
+	maxNodes: int,
 }
 
 nodeWorldInit :: proc(nw: ^NodeWorld, max_nodes: int) {
-	nw.max_nodes = max_nodes
+	nw.maxNodes = max_nodes
 	nw.nodes = make([dynamic]Node, 0, max_nodes)
 }
 
 createNode :: proc(nw: ^NodeWorld) -> (^Node, u32) {
-	assert(len(nw.nodes) < nw.max_nodes, "Node world is at capacity")
+	assert(len(nw.nodes) < nw.maxNodes, "Node world is at capacity")
 	append(&nw.nodes, Node{})
 	node_id := u32(len(nw.nodes))
 	return &nw.nodes[node_id - 1], node_id

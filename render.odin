@@ -4,6 +4,7 @@ import vk "vendor:vulkan"
 import "core:math"
 import la "core:math/linalg"
 
+
 make_camera :: proc() -> Camera {
 	cam := Camera{
 		pos   = {0, 0, 3},
@@ -44,44 +45,44 @@ process_mouse_scroll :: proc(cam: ^Camera, yoffset: f32) {
 }
 render :: proc() {
 	// first check if our swapchain is still valid
-	if g.require_swapchain_recreate {
+	if g.requireSwapchainRecreate {
 		vk.DeviceWaitIdle(g.device)
 		destroySwapchain()
 		createSwapchain(g.width, g.height)
-		g.require_swapchain_recreate = false
+		g.requireSwapchainRecreate = false
 	}
 
-	frameResIndex := u32(g.frame_index) % MAX_FRAMES_IN_FLIGHT
-	g.frame_index += 1
-	signalValue := g.next_signal_value
-	g.next_signal_value += 1
+	frameResIndex := u32(g.frameIndex) % MAX_FRAMES_IN_FLIGHT
+	g.frameIndex += 1
+	signalValue := g.nextSignalValue
+	g.nextSignalValue += 1
 	waitValue := signalValue - MAX_FRAMES_IN_FLIGHT
 
 	waitInfo: vk.SemaphoreWaitInfo = {
 		sType          = .SEMAPHORE_WAIT_INFO,
 		semaphoreCount = 1,
-		pSemaphores    = &g.timeline_semaphore,
+		pSemaphores    = &g.timelineSemaphore,
 		pValues        = &waitValue,
 	}
 	vk.WaitSemaphores(g.device, &waitInfo, max(u64))
 
 	// now its safe to start recording commands
-	res := &g.frame_resources[frameResIndex]
-	vk.ResetCommandPool(g.device, res.command_pool, {})
+	res := &g.frameResources[frameResIndex]
+	vk.ResetCommandPool(g.device, res.commandPool, {})
 
 	// get the resources for this frame
-	imageAcquireSemaphore := res.image_acquired_semaphore
+	imageAcquireSemaphore := res.imageAcquiredSemaphore
 
 	imageIndex: u32 = 0
 	acquireResult := vk.AcquireNextImageKHR(g.device, g.swapchain, max(u64), imageAcquireSemaphore, 0, &imageIndex)
 
 	// handle resize and out-of-date images, may need swapchain recreate
 	if acquireResult == .ERROR_OUT_OF_DATE_KHR {
-		g.require_swapchain_recreate = true
+		g.requireSwapchainRecreate = true
 		return
 	} else if acquireResult == .SUBOPTIMAL_KHR {
 		// can render this frame, recreate next time around
-		g.require_swapchain_recreate = true
+		g.requireSwapchainRecreate = true
 	}
 
 	// traverse entire scene and record MDI draw commands
@@ -91,48 +92,48 @@ render :: proc() {
 	viewProjMatrix := projMatrix * viewMatrix
 
 	// push root nodes to render-stack
-	clear(&g.node_render_stack)
-	nodeId := g.root_node_id
+	clear(&g.nodeRenderStack)
+	nodeId := g.rootNodeId
 	for nodeId != 0 {
-		node := getNode(&g.node_world, nodeId)
-		append(&g.node_render_stack, RenderStackLayer{node_ptr = node, mat = la.MATRIX4F32_IDENTITY})
-		nodeId = node.next_sibling_id
+		node := getNode(&g.nodeWorld, nodeId)
+		append(&g.nodeRenderStack, RenderStackLayer{nodePtr = node, mat = la.MATRIX4F32_IDENTITY})
+		nodeId = node.nextSiblingId
 	}
 
 	drawIndex: u32 = 0
-	for len(g.node_render_stack) > 0 {
-		layer := pop(&g.node_render_stack)
-		node := layer.node_ptr
+	for len(g.nodeRenderStack) > 0 {
+		layer := pop(&g.nodeRenderStack)
+		node := layer.nodePtr
 		matWorld := layer.mat * getTransform(node)
 
 		// draw the associated mesh
-		if node.mesh_id != 0 {
-			mesh := &g.meshes[node.mesh_id - 1]
-			for &subMesh in mesh.sub_meshes {
+		if node.meshId != 0 {
+			mesh := &g.meshes[node.meshId - 1]
+			for &subMesh in mesh.subMeshes {
 				// indirect draw command
-				res.indirect_draw_ptr[drawIndex] = vk.DrawIndexedIndirectCommand{
-					indexCount    = u32(subMesh.index_count),
+				res.indirectDrawPtr[drawIndex] = vk.DrawIndexedIndirectCommand{
+					indexCount    = u32(subMesh.indexCount),
 					instanceCount = 1,
-					firstIndex    = u32(subMesh.index_start),
-					vertexOffset  = i32(subMesh.vertex_start),
+					firstIndex    = u32(subMesh.indexStart),
+					vertexOffset  = i32(subMesh.vertexStart),
 					firstInstance = drawIndex,
 				}
 				// per render-item data
-				res.render_item_ptr[drawIndex] = RenderItem{
+				res.renderItemPtr[drawIndex] = RenderItem{
 					wvp            = viewProjMatrix * matWorld,
-					world_matrix    = matWorld,
-					material_index  = subMesh.material_id - 1,
+					worldMatrix    = matWorld,
+					materialIndex  = subMesh.materialId - 1,
 				}
 				drawIndex += 1
 			}
 		}
 
 		// child nodes for processing
-		childNodeId := node.first_child_id
+		childNodeId := node.firstChildId
 		for childNodeId != 0 {
-			child := getNode(&g.node_world, childNodeId)
-			append(&g.node_render_stack, RenderStackLayer{node_ptr = child, mat = matWorld})
-			childNodeId = child.next_sibling_id
+			child := getNode(&g.nodeWorld, childNodeId)
+			append(&g.nodeRenderStack, RenderStackLayer{nodePtr = child, mat = matWorld})
+			childNodeId = child.nextSiblingId
 		}
 	}
 
@@ -141,7 +142,7 @@ render :: proc() {
 		sType = .COMMAND_BUFFER_BEGIN_INFO,
 		flags = {.ONE_TIME_SUBMIT},
 	}
-	vk.BeginCommandBuffer(res.command_buffer, &cmdBeginInfo)
+	vk.BeginCommandBuffer(res.commandBuffer, &cmdBeginInfo)
 
 	// transition the color and depth images
 	layoutBarriers: [2]vk.ImageMemoryBarrier2 = {
@@ -153,7 +154,7 @@ render :: proc() {
 			dstAccessMask = {.COLOR_ATTACHMENT_WRITE},
 			oldLayout     = .UNDEFINED,
 			newLayout     = .COLOR_ATTACHMENT_OPTIMAL,
-			image         = g.swapchain_images[imageIndex],
+			image         = g.swapchainImages[imageIndex],
 			subresourceRange = {
 				aspectMask     = {.COLOR},
 				baseMipLevel   = 0,
@@ -170,7 +171,7 @@ render :: proc() {
 			dstAccessMask = {.DEPTH_STENCIL_ATTACHMENT_WRITE},
 			oldLayout     = .UNDEFINED,
 			newLayout     = .DEPTH_ATTACHMENT_OPTIMAL,
-			image         = g.depth_image,
+			image         = g.depthImage,
 			subresourceRange = {
 				aspectMask     = {.DEPTH},
 				baseMipLevel   = 0,
@@ -185,12 +186,12 @@ render :: proc() {
 		imageMemoryBarrierCount = u32(len(layoutBarriers)),
 		pImageMemoryBarriers    = raw_data(layoutBarriers[:]),
 	}
-	vk.CmdPipelineBarrier2(res.command_buffer, &depInfo)
+	vk.CmdPipelineBarrier2(res.commandBuffer, &depInfo)
 
 	// setup the attachments (color and depth) and begin rendering (dynamic)
 	colorAttachInfo: vk.RenderingAttachmentInfo = {
 		sType       = .RENDERING_ATTACHMENT_INFO,
-		imageView   = g.swapchain_views[imageIndex],
+		imageView   = g.swapchainViews[imageIndex],
 		imageLayout = .COLOR_ATTACHMENT_OPTIMAL,
 		loadOp      = .CLEAR,
 		storeOp     = .STORE,
@@ -198,7 +199,7 @@ render :: proc() {
 	}
 	depthAttachInfo: vk.RenderingAttachmentInfo = {
 		sType       = .RENDERING_ATTACHMENT_INFO,
-		imageView   = g.depth_image_view,
+		imageView   = g.depthImageView,
 		imageLayout = .DEPTH_ATTACHMENT_OPTIMAL,
 		loadOp      = .CLEAR,
 		storeOp     = .DONT_CARE,
@@ -208,7 +209,7 @@ render :: proc() {
 		sType = .RENDERING_INFO,
 		renderArea = {
 			offset = {x = 0, y = 0},
-			extent = {width = g.swapchain_width, height = g.swapchain_height},
+			extent = {width = g.swapchainWidth, height = g.swapchainHeight},
 		},
 		layerCount           = 1,
 		colorAttachmentCount = 1,
@@ -217,44 +218,44 @@ render :: proc() {
 	}
 
 	// setup frame data
-	vk.CmdBindDescriptorSets(res.command_buffer, .GRAPHICS, g.pipeline_layout, 0, 1, &g.global_desc_set, 0, nil)
+	vk.CmdBindDescriptorSets(res.commandBuffer, .GRAPHICS, g.pipelineLayout, 0, 1, &g.globalDescSet, 0, nil)
 
 	frameConsts: FrameConstants
-	vertBuffer := &g.buffers[g.vertex_buffer_id - 1]
-	materialBuffer := &g.buffers[g.mat_buffer_id - 1]
-	frameConsts.vertex_buffer_address = cast(u64)vertBuffer.device_address
-	frameConsts.material_buffer_address = cast(u64)materialBuffer.device_address
-	frameConsts.render_items_address = cast(u64)res.render_item_buffer.device_address
-	vk.CmdPushConstants(res.command_buffer, g.pipeline_layout, {.VERTEX, .FRAGMENT}, 0, size_of(FrameConstants), &frameConsts)
+	vertBuffer := &g.buffers[g.vertexBufferId - 1]
+	materialBuffer := &g.buffers[g.matBufferId - 1]
+	frameConsts.vertexBufferAddress = cast(u64)vertBuffer.deviceAddress
+	frameConsts.materialBufferAddress = cast(u64)materialBuffer.deviceAddress
+	frameConsts.renderItemsAddress = cast(u64)res.renderItemBuffer.deviceAddress
+	vk.CmdPushConstants(res.commandBuffer, g.pipelineLayout, {.VERTEX, .FRAGMENT}, 0, size_of(FrameConstants), &frameConsts)
 
-	idxBuffer := &g.buffers[g.index_buffer_id - 1]
-	vk.CmdBindIndexBuffer(res.command_buffer, idxBuffer.vk_buffer, 0, .UINT32)
+	idxBuffer := &g.buffers[g.indexBufferId - 1]
+	vk.CmdBindIndexBuffer(res.commandBuffer, idxBuffer.vkBuffer, 0, .UINT32)
 
 	// begin dynamic rendering
-	vk.CmdBeginRendering(res.command_buffer, &renderingInfo)
+	vk.CmdBeginRendering(res.commandBuffer, &renderingInfo)
 	{
 		// set the viewport and scissor state -- negative height flips Y to match glTF/GLM's convention
 		viewport: vk.Viewport = {
 			x        = 0,
-			y        = f32(g.swapchain_height),
-			width    = f32(g.swapchain_width),
-			height   = -f32(g.swapchain_height),
+			y        = f32(g.swapchainHeight),
+			width    = f32(g.swapchainWidth),
+			height   = -f32(g.swapchainHeight),
 			minDepth = 0,
 			maxDepth = 1,
 		}
-		vk.CmdSetViewport(res.command_buffer, 0, 1, &viewport)
+		vk.CmdSetViewport(res.commandBuffer, 0, 1, &viewport)
 
 		scissor: vk.Rect2D = {
 			offset = {x = 0, y = 0},
-			extent = {width = g.swapchain_width, height = g.swapchain_height},
+			extent = {width = g.swapchainWidth, height = g.swapchainHeight},
 		}
-		vk.CmdSetScissor(res.command_buffer, 0, 1, &scissor)
+		vk.CmdSetScissor(res.commandBuffer, 0, 1, &scissor)
 
-		vk.CmdBindPipeline(res.command_buffer, .GRAPHICS, g.pipeline)
-		vk.CmdDrawIndexedIndirect(res.command_buffer, res.indirect_draw_buffer.vk_buffer, 0, drawIndex, size_of(vk.DrawIndexedIndirectCommand))
+		vk.CmdBindPipeline(res.commandBuffer, .GRAPHICS, g.pipeline)
+		vk.CmdDrawIndexedIndirect(res.commandBuffer, res.indirectDrawBuffer.vkBuffer, 0, drawIndex, size_of(vk.DrawIndexedIndirectCommand))
 	}
 	// end dynamic rendering
-	vk.CmdEndRendering(res.command_buffer)
+	vk.CmdEndRendering(res.commandBuffer)
 
 	// transition the image from color attachment to presentation so we can show it
 	presentLayoutBarrier: vk.ImageMemoryBarrier2 = {
@@ -265,7 +266,7 @@ render :: proc() {
 		dstAccessMask = {},
 		oldLayout     = .COLOR_ATTACHMENT_OPTIMAL,
 		newLayout     = .PRESENT_SRC_KHR,
-		image         = g.swapchain_images[imageIndex],
+		image         = g.swapchainImages[imageIndex],
 		subresourceRange = {
 			aspectMask     = {.COLOR},
 			baseMipLevel   = 0,
@@ -279,9 +280,9 @@ render :: proc() {
 		imageMemoryBarrierCount = 1,
 		pImageMemoryBarriers    = &presentLayoutBarrier,
 	}
-	vk.CmdPipelineBarrier2(res.command_buffer, &presentDepInfo)
+	vk.CmdPipelineBarrier2(res.commandBuffer, &presentDepInfo)
 
-	vk.EndCommandBuffer(res.command_buffer)
+	vk.EndCommandBuffer(res.commandBuffer)
 
 	// ensure swapchain image is actually available to start color output
 	imageAcquireWaitInfo: vk.SemaphoreSubmitInfo = {
@@ -292,19 +293,19 @@ render :: proc() {
 	semaphoreSignals: [2]vk.SemaphoreSubmitInfo = {
 		{
 			sType     = .SEMAPHORE_SUBMIT_INFO,
-			semaphore = g.render_complete_semaphores[imageIndex],
+			semaphore = g.renderCompleteSemaphores[imageIndex],
 			stageMask = {.ALL_GRAPHICS},
 		},
 		{
 			sType     = .SEMAPHORE_SUBMIT_INFO,
-			semaphore = g.timeline_semaphore,
+			semaphore = g.timelineSemaphore,
 			value     = signalValue,
 			stageMask = {.ALL_COMMANDS},
 		},
 	}
 	cmdSubmitInfo: vk.CommandBufferSubmitInfo = {
 		sType         = .COMMAND_BUFFER_SUBMIT_INFO,
-		commandBuffer = res.command_buffer,
+		commandBuffer = res.commandBuffer,
 	}
 	submitInfo: vk.SubmitInfo2 = {
 		sType                    = .SUBMIT_INFO_2,
@@ -315,18 +316,18 @@ render :: proc() {
 		signalSemaphoreInfoCount = u32(len(semaphoreSignals)),
 		pSignalSemaphoreInfos    = raw_data(semaphoreSignals[:]),
 	}
-	vk.QueueSubmit2(g.graphics_queue, 1, &submitInfo, 0)
+	vk.QueueSubmit2(g.graphicsQueue, 1, &submitInfo, 0)
 
 	// present the image
 	presentInfo: vk.PresentInfoKHR = {
 		sType              = .PRESENT_INFO_KHR,
 		waitSemaphoreCount = 1,
-		pWaitSemaphores    = &g.render_complete_semaphores[imageIndex],
+		pWaitSemaphores    = &g.renderCompleteSemaphores[imageIndex],
 		swapchainCount     = 1,
 		pSwapchains        = &g.swapchain,
 		pImageIndices      = &imageIndex,
 		pResults           = nil,
 	}
 
-	vk.QueuePresentKHR(g.graphics_queue, &presentInfo)
+	vk.QueuePresentKHR(g.graphicsQueue, &presentInfo)
 }

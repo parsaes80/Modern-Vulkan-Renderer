@@ -7,6 +7,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:mem"
 import la "core:math/linalg"
+import mu "vendor:microui"
 
 main :: proc() {
     
@@ -29,22 +30,22 @@ main :: proc() {
     //     mem.tracking_allocator_destroy(&track)
     // }
 
-    g.swapchain_format.format = .B8G8R8A8_SRGB
-    g.swapchain_format.colorSpace = .SRGB_NONLINEAR
+    g.swapchainFormat.format = .B8G8R8A8_SRGB
+    g.swapchainFormat.colorSpace = .SRGB_NONLINEAR
     
-    //uncomment for HDR triangle if supported by monitor
+    //uncomment for HDR if supported by monitor
     //g.swapchain_format.format = .A2B10G10R10_UNORM_PACK32
     //g.swapchain_format.colorSpace = .HDR10_ST2084_EXT
 
-    g.depth_format = .D32_SFLOAT
+    g.depthFormat = .D32_SFLOAT
     g.running = true
     g.width = 1800
     g.height = 1080
-    g.next_signal_value = MAX_FRAMES_IN_FLIGHT + 1
+    g.nextSignalValue = MAX_FRAMES_IN_FLIGHT + 1
 
 
-	nodeWorldInit(&g.node_world, 2048)
-	reserve(&g.node_render_stack, 256)
+	nodeWorldInit(&g.nodeWorld, 2048)
+	reserve(&g.nodeRenderStack, 256)
 
 	g.camera = make_camera()
 	g.mouse = make_mouse()
@@ -56,8 +57,6 @@ main :: proc() {
 
 	initializeVulkan()
 	loadData()
-    
-	g.t0 = sdl.GetTicksNS()
 
 	event: sdl.Event
 	for g.running {
@@ -68,7 +67,7 @@ main :: proc() {
 			case .WINDOW_RESIZED:
 				g.width = u32(event.window.data1)
 				g.height = u32(event.window.data2)
-				g.require_swapchain_recreate = true
+				g.requireSwapchainRecreate = true
 			case .MOUSE_WHEEL:
 				process_mouse_scroll(&g.camera, event.wheel.y)
 			}
@@ -77,7 +76,7 @@ main :: proc() {
 		t := sdl.GetTicksNS()
 		g.dt = t - g.t0
 		g.t0 = t
-		print("fps: ", 1e9 / f64(g.dt))
+		//fmt.printfln("Fps: %v ,Time: %vns",g.dt, 1e9/g.dt)
 
 		xrel, yrel: f32
 		flags := sdl.GetRelativeMouseState(&xrel, &yrel)
