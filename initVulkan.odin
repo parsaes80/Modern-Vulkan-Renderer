@@ -1,13 +1,11 @@
 package main
 
 import "core:os"
-import "core:path/filepath"
 import "core:strings"
 import vk "vendor:vulkan"
 import sdl "vendor:sdl3"
 import "core:log"
 import "core:fmt"
-import "vendor:cgltf"
 
 import vma "odin-vma" 
 import shaderc "shaderc" 
@@ -53,13 +51,22 @@ shutdown :: proc() {
         vk.DestroyBuffer(g.device,buff.vkBuffer,nil)
         vma.FreeMemory(g.allocator,buff.allocation)
     }
-    
+
     // // frame / sync object cleanup
-    for res in g.frameResources{
-        vk.DestroySemaphore(g.device,res.imageAcquiredSemaphore,nil)
-        vk.DestroyCommandPool(g.device,res.commandPool,nil)
+    for &res in g.frameResources {
+        vk.DestroySemaphore(g.device, res.imageAcquiredSemaphore, nil)
+        vk.DestroyCommandPool(g.device, res.commandPool, nil)
+
+        vma.UnmapMemory(g.allocator, res.indirectDrawBuffer.allocation)
+        vk.DestroyBuffer(g.device, res.indirectDrawBuffer.vkBuffer, nil)
+        vma.FreeMemory(g.allocator, res.indirectDrawBuffer.allocation)
+
+        vma.UnmapMemory(g.allocator, res.renderItemBuffer.allocation)
+        vk.DestroyBuffer(g.device, res.renderItemBuffer.vkBuffer, nil)
+        vma.FreeMemory(g.allocator, res.renderItemBuffer.allocation)
     }
     
+    vk.DestroyCommandPool(g.device, g.commandPool, nil)
     vk.DestroySemaphore(g.device, g.timelineSemaphore, nil)
     
     // pipeline cleanup
@@ -166,8 +173,8 @@ createVulkanInstance::proc()-> bool {
     append(&requestedExtentions, "VK_EXT_swapchain_colorspace")
     //print(requestedExtentions)
 
-    //requestedLayers := []cstring{"VK_LAYER_KHRONOS_validation"}
-    requestedLayers := []cstring{}
+    requestedLayers := []cstring{"VK_LAYER_KHRONOS_validation"}
+    //requestedLayers := []cstring{}
 
     enabledFeatures : []vk.ValidationFeatureEnableEXT = {.GPU_ASSISTED}
 
@@ -304,24 +311,17 @@ createDevice :: proc() -> bool {
 		return false;
 	}
 
-    // check if what we need is supported
-    if !supported_features_13.dynamicRendering || !supported_features_13.synchronization2 ||
-       !supported_features_12.timelineSemaphore {
-        print("Physical device doesn't meet the feature requirements")
-        return false
-    }
-
     // produce a separate features struct chain for device creation
     features_14 : vk.PhysicalDeviceVulkan14Features = {
         sType = .PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
         hostImageCopy = true,
-        pNext = nil,
     }
     features_13 : vk.PhysicalDeviceVulkan13Features = {
         sType            = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
         pNext            = &features_14,
         synchronization2 = true,
         dynamicRendering = true,
+
     }
     features_12 : vk.PhysicalDeviceVulkan12Features = {
         sType            = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,

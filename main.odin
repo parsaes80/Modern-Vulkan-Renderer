@@ -2,12 +2,11 @@ package main
 
 import vk "vendor:vulkan"
 import sdl "vendor:sdl3"
-import "core:log"
 import "base:runtime"
 import "core:fmt"
-import "core:mem"
+
 import la "core:math/linalg"
-import mu "vendor:microui"
+
 
 main :: proc() {
     
@@ -34,12 +33,12 @@ main :: proc() {
     g.swapchainFormat.colorSpace = .SRGB_NONLINEAR
     
     //uncomment for HDR if supported by monitor
-    //g.swapchain_format.format = .A2B10G10R10_UNORM_PACK32
-    //g.swapchain_format.colorSpace = .HDR10_ST2084_EXT
+    //g.swapchainFormat.format = .A2B10G10R10_UNORM_PACK32
+    //g.swapchainFormat.colorSpace = .HDR10_ST2084_EXT
 
     g.depthFormat = .D32_SFLOAT
     g.running = true
-    g.width = 1800
+    g.width = 1920
     g.height = 1080
     g.nextSignalValue = MAX_FRAMES_IN_FLIGHT + 1
 
@@ -60,18 +59,17 @@ main :: proc() {
 
 	event: sdl.Event
 	for g.running {
-		for sdl.PollEvent(&event) {
-			#partial switch event.type {
-			case .QUIT:
-				g.running = false
-			case .WINDOW_RESIZED:
-				g.width = u32(event.window.data1)
-				g.height = u32(event.window.data2)
-				g.requireSwapchainRecreate = true
-			case .MOUSE_WHEEL:
-				process_mouse_scroll(&g.camera, event.wheel.y)
-			}
-		}
+        for sdl.PollEvent(&event) {
+            #partial switch event.type {
+            case .QUIT: g.running = false
+            case .WINDOW_RESIZED:
+                g.width = u32(event.window.data1)
+                g.height = u32(event.window.data2)
+                g.requireSwapchainRecreate = true
+            case .MOUSE_WHEEL:
+                process_mouse_scroll(&g.camera, event.wheel.y)
+            }
+        }
 
 		t := sdl.GetTicksNS()
 		g.dt = t - g.t0
@@ -91,7 +89,7 @@ main :: proc() {
 		if keys[sdl.Scancode.S] do g.camera.pos -= camera_speed * g.camera.front
 		if keys[sdl.Scancode.A] do g.camera.pos -= la.normalize(la.cross(g.camera.front, g.camera.up)) * camera_speed
 		if keys[sdl.Scancode.D] do g.camera.pos += la.normalize(la.cross(g.camera.front, g.camera.up)) * camera_speed
-
+        
 		render()
 	}
 

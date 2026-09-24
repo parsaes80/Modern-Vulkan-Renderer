@@ -3,6 +3,7 @@ package main
 import vk "vendor:vulkan"
 import "core:math"
 import la "core:math/linalg"
+import vma "odin-vma" 
 
 
 make_camera :: proc() -> Camera {
@@ -43,6 +44,35 @@ process_mouse_scroll :: proc(cam: ^Camera, yoffset: f32) {
 	cam.fov -= yoffset
 	cam.fov = clamp(cam.fov, 1, 90)
 }
+
+// createRenderTargetImage :: proc(format: vk.Format, usage: vk.ImageUsageFlags, width, height: u32) -> GPUImage {
+// 	imgInfo: vk.ImageCreateInfo = {
+// 		sType       = .IMAGE_CREATE_INFO,
+// 		imageType   = .D2,
+// 		format      = format,
+// 		extent      = {width, height, 1},
+// 		mipLevels   = 1,
+// 		arrayLayers = 1,
+// 		samples     = {._1},
+// 		tiling      = .OPTIMAL,
+// 		usage       = usage,
+// 		initialLayout = .UNDEFINED,
+// 	}
+// 	allocInfo: vma.AllocationCreateInfo = {usage = .AUTO}
+// 	gpuImage: GPUImage
+// 	vma.CreateImage(g.allocator, imgInfo, allocInfo, &gpuImage.image, &gpuImage.allocation, nil)
+
+// 	viewInfo: vk.ImageViewCreateInfo = {
+// 		sType    = .IMAGE_VIEW_CREATE_INFO,
+// 		image    = gpuImage.image,
+// 		viewType = .D2,
+// 		format   = format,
+// 		subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
+// 	}
+// 	vk.CreateImageView(g.device, &viewInfo, nil, &gpuImage.imageView)
+// 	return gpuImage
+// }
+
 render :: proc() {
 	// first check if our swapchain is still valid
 	if g.requireSwapchainRecreate {
@@ -96,7 +126,7 @@ render :: proc() {
 	nodeId := g.rootNodeId
 	for nodeId != 0 {
 		node := getNode(&g.nodeWorld, nodeId)
-		append(&g.nodeRenderStack, RenderStackLayer{nodePtr = node, mat = la.MATRIX4F32_IDENTITY})
+		append(&g.nodeRenderStack, NodeRenderStackLayer{nodePtr = node, mat = la.MATRIX4F32_IDENTITY})
 		nodeId = node.nextSiblingId
 	}
 
@@ -132,13 +162,13 @@ render :: proc() {
 		childNodeId := node.firstChildId
 		for childNodeId != 0 {
 			child := getNode(&g.nodeWorld, childNodeId)
-			append(&g.nodeRenderStack, RenderStackLayer{nodePtr = child, mat = matWorld})
+			append(&g.nodeRenderStack, NodeRenderStackLayer{nodePtr = child, mat = matWorld})
 			childNodeId = child.nextSiblingId
 		}
 	}
 
 	// begin recording commands
-	cmdBeginInfo := vk.CommandBufferBeginInfo{
+	cmdBeginInfo : vk.CommandBufferBeginInfo = {
 		sType = .COMMAND_BUFFER_BEGIN_INFO,
 		flags = {.ONE_TIME_SUBMIT},
 	}

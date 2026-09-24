@@ -48,14 +48,14 @@ FrameConstants :: struct
 
 GPUImage :: struct {
     image:      vk.Image,
-    imageView: vk.ImageView,
+    imageView:  vk.ImageView,
     allocation: vma.Allocation,
 }
 
 GPUBuffer :: struct {
     vkBuffer:      vk.Buffer,
     deviceAddress: vk.DeviceAddress,
-    allocation:     vma.Allocation,
+    allocation:    vma.Allocation,
 }
 
 RenderItem :: struct #packed{
@@ -65,10 +65,10 @@ RenderItem :: struct #packed{
 }
 
 FrameResources :: struct {
-    commandPool:             vk.CommandPool,
-    commandBuffer:           vk.CommandBuffer,
+    commandPool:            vk.CommandPool,
+    commandBuffer:          vk.CommandBuffer,
     imageAcquiredSemaphore: vk.Semaphore,
-    descSet:                 vk.DescriptorSet,
+    descSet:                vk.DescriptorSet,
     indirectDrawBuffer:     GPUBuffer,
     renderItemBuffer:       GPUBuffer,
     indirectDrawPtr:        [^]vk.DrawIndexedIndirectCommand,
@@ -76,8 +76,8 @@ FrameResources :: struct {
 }
 
 Material :: struct #packed{
-    baseColor    :Vec4,
-    textureIndex :u32,
+    baseColor:    Vec4,
+    textureIndex: u32,
 }
 
 Texture :: struct {
@@ -85,7 +85,7 @@ Texture :: struct {
     samplerId: u32,
 }
 
-RenderStackLayer::struct {
+NodeRenderStackLayer::struct {
     nodePtr:^Node,
     mat:     matrix[4,4]f32
 } 
@@ -105,9 +105,9 @@ Mouse :: struct {
 }
 
 VKGlobals :: struct {
-    ctx:                runtime.Context,
+    ctx:              runtime.Context,
 
-    window:             ^sdl.Window,
+    window:           ^sdl.Window,
 
     running:          bool,
     width:            u32,
@@ -121,6 +121,7 @@ VKGlobals :: struct {
     surface:                   vk.SurfaceKHR,
     graphicsQueueFamilyIdx:    u32,
     graphicsQueue:             vk.Queue,
+    
     allocator:                 vma.Allocator,
 
     swapchain:                vk.SwapchainKHR,
@@ -135,48 +136,49 @@ VKGlobals :: struct {
     depthImage:               vk.Image,
     depthImageAllocation:     vma.Allocation,
     depthImageView:           vk.ImageView,
+    
     renderCompleteSemaphores: []vk.Semaphore,
 
-    vertShaderModule: vk.ShaderModule,
-    fragShaderModule: vk.ShaderModule,
+    vertShaderModule:  vk.ShaderModule,
+    fragShaderModule:  vk.ShaderModule,
 
-    pipelineLayout:   vk.PipelineLayout,
-    pipeline:         vk.Pipeline,
+    pipelineLayout:    vk.PipelineLayout,
+    pipeline:          vk.Pipeline,
 
     timelineSemaphore: vk.Semaphore,
     frameResources:    [MAX_FRAMES_IN_FLIGHT]FrameResources,
 
-    commandPool: vk.CommandPool, 
+    commandPool:       vk.CommandPool, 
 
-    meshes:     [dynamic]Mesh,
-    vertOffset: u64,
-    idxOffset:  u64,
+    meshes:            [dynamic]Mesh,
+    vertOffset:        u64,
+    idxOffset:         u64,
 
     whitePixelImageId: u32,
-    vertexBufferId:     u32,
-    indexBufferId:      u32,
-    matBufferId:        u32,
+    vertexBufferId:    u32,
+    indexBufferId:     u32,
+    matBufferId:       u32,
     
-    vertecies: [dynamic]Vertex,
-    indicies:  [dynamic]u32,
-
-    images:    [dynamic]GPUImage,
-    samplers:  [dynamic]vk.Sampler,
-    textures:  [dynamic]Texture,
-    buffers:   [dynamic]GPUBuffer,
-    materials: [dynamic]Material,
-
-    globalDsLayout: vk.DescriptorSetLayout,
-    globalDescSet:  vk.DescriptorSet,
-    descPool:       vk.DescriptorPool,
+    vertecies:        [dynamic]Vertex,
+    indicies:         [dynamic]u32,
     
-    camera: Camera,
-    mouse:  Mouse,
+    images:           [dynamic]GPUImage,
+    samplers:         [dynamic]vk.Sampler,
+    textures:         [dynamic]Texture,
+    buffers:          [dynamic]GPUBuffer,
+    materials:        [dynamic]Material,
+
+    globalDsLayout:  vk.DescriptorSetLayout,
+    globalDescSet:   vk.DescriptorSet,
+    descPool:        vk.DescriptorPool,
+     
+    camera:          Camera,
+    mouse:           Mouse,
 
     nodeWorld:       NodeWorld,
     rootNodeId:      u32,
     lastRootNodeId:  u32,
-    nodeRenderStack: [dynamic]RenderStackLayer,
+    nodeRenderStack: [dynamic]NodeRenderStackLayer,
 
     dt: u64,
     t0: u64

@@ -93,7 +93,7 @@ quaternion_from_matrix3 :: proc(m: matrix[3, 3]f32) -> quaternion256 {
 		y = (m[1, 2] + m[2, 1]) / s
 		z = 0.25 * s
 	}
-	return quaternion(real=w, imag= x, jmag= y, kmag=z)
+	return cast(quaternion256)quaternion(real=w, imag= x, jmag= y, kmag=z)
 }
 
 NodeWorld :: struct {
